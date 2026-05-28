@@ -5,7 +5,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 </br>
 [Installation](https://github.com/truelockmc/streambert?tab=readme-ov-file#requirements)
 
-## Why Streamstein?
+## Why StreamStein?
 - 🎦 **Any** Movie, Anime or TV Series from around the World.
 - 📥 **Stream or Download** anything you want to watch, one movie or entire show at a time.
 - 📚 **Local Library** to track & save what you watched and manage your Downloads.
