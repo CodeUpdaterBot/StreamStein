@@ -51,7 +51,7 @@ It's saved locally, you only need to do this once.
 ```bash
 npm install
 ```
-2. Build
+2. Build & launch
 ```bash
 npm start
 ```
