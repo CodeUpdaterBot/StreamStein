@@ -2,17 +2,16 @@
 A cross-platform Electron Desktop App to stream and download any Movie, TV Series or Anime in the World. Zero Ads and Tracking. An improved version of Streambert by truelockmc.<br></br>
 ![Logo](screenshots/series-page.png)
 ![Logo](screenshots/library2.png)
+</br>
 [Installation](https://github.com/truelockmc/streambert?tab=readme-ov-file#requirements)
 
 ## Why Streamstein?
-- 🎦 **Streaming:** Stream any Movie, Anime or TV Series from around the World.
-- 📥 **Downloading:** Download anything you want to watch.
-- 📃 **Subtitles:** Download and manage Subtitles.
-- ⚙️ **Customizability:** Customize the Interface and Features to your unique needs.
-- 📚 **Library:** Track what you watched, save stuff you want to watch and manage your Downloads.
-- ✨ **Trending:** Discover new things to Watch every Day.
-- 🛡️ **Privacy:** Completely Ads and Tracker free, forever.
-- ⚡ **Speed:** Stream faster than any Browser can, download with multithreading.
+- 🎦 **Any** Movie, Anime or TV Series from around the World.
+- 📥 **Stream or Download** anything you want to watch, one movie or entire show at a time.
+- 📚 **Local Library** to track & save what you watched and manage your Downloads.
+- ⚙️ **Customize** the Interface and Features to your unique needs.
+- 🛡️ **No Add** Completely Ads and Tracker free, forever.
+- ⚡ **Speed:** Stream faster than any Browser can.
 
 ![Explore new Stuff](screenshots/trending.png)
 ![Watch TV Series](screenshots/series.png)
