@@ -19,6 +19,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 ![Without any Ads or Trackers](screenshots/adblock.png)
 ![Customize](screenshots/customize-1.png)
 ![Customize](screenshots/customize-2.png)
+![Video Player](screenshots/vidoptions.png)
 ![Download Subtitles](screenshots/player.png)
 ![Download Everything](screenshots/download.png)
 
