@@ -3,7 +3,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 ![Logo](screenshots/series-page.png)
 ![Logo](screenshots/library2.png)
 </br>
-[Installation](https://github.com/truelockmc/streambert?tab=readme-ov-file#requirements)
+[Installation](https://github.com/CodeUpdaterBot/StreamStein?tab=readme-ov-file#requirements)
 
 ## Why StreamStein?
 - 🎦 **Any** Movie, Anime or TV Series from around the World.
@@ -26,7 +26,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 ---
 ## Streaming & Downloading
 The Application mainly gets Video Streams from VidEasy & VidSrc (you can also Stream from 2Embed). It fetches Information for Images, Info Texts, Search and Homepage from [tmdb](https://www.themoviedb.org/). You can download those Video Streams because the Program sources Links to their .m3u8 Playlist Files.<br></br>
-Once you click 'Download' these Links are used to download the Full Movie/TV Episode using [this Program](https://github.com/truelockmc/vid-dl-cli-only). You can then watch them In-App or take the Files on any Storage Medium you want.
+Once you click 'Download' these Links are used to download the Full Movie/TV Episode using [this Program](https://github.com/CodeUpdaterBot/vid-dl-cli-only). You can then watch them In-App or take the Files on any Storage Medium you want.
 
 ---
 
@@ -34,7 +34,7 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 - [Node.js](https://nodejs.org/) (>=22.12.0) installed
 - A free TMDB API Read Access Token ([Guide on how to get one](tmdb-tutorial.md))
 - [ffmpeg](https://ffmpeg.org/download.html) Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
-- For downloading, [this Program](https://github.com/truelockmc/vid-dl-cli-only/releases/latest) somewhere on your PC (can select folder in STREAMSTEIN)
+- For downloading, [this Program](https://github.com/CodeUpdaterBot/vid-dl-cli-only/releases/latest) somewhere on your PC (can select folder in STREAMSTEIN)
 
 ---
 ## Easy Installation (Windows-only)
