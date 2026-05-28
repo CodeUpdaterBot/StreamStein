@@ -38,7 +38,7 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 
 ## Anime
 You can also watch Anime, the App checks if a Movie or Series is an Anime and then sources its Metadata from [AniList](https://anilist.co/) instead of [tmdb](https://www.themoviedb.org/). <br></br>
-Media Files for Animes are scraped from AllManga.to (i stole this mechanic from [ani-cli](https://github.com/pystardust/ani-cli)). The App directly gets .mp4 Files and doesnt evem show you the AllManga website, you can also download these Files, just like any other Content.
+Media Files for Animes are scraped from AllManga.to (original technique from [ani-cli](https://github.com/pystardust/ani-cli)). The App directly gets .mp4 Files and doesnt even show you the AllManga website, you can also download these Files, just like any other Content.
 
 
 ## Requirements
@@ -122,91 +122,3 @@ This application is provided "as is" for educational purposes. The developer:
 - Encourages users to support content creators through legal means
 
 [![RepoStars](https://repostars.dev/api/embed?repo=truelockmc%2Fstreamstein&theme=dark)](https://repostars.dev/?repos=truelockmc%2Fstreamstein&theme=dark)
-
-<details>
-    <summary>Project Structure</summary>
-    
-```
-Project Root
-├── index.html
-├── main.js
-├── package.json
-├── preload.js
-├── vite.config.js
-├── LICENSE
-├── README.md
-├── public
-│   ├── icon.png
-│   ├── installer-sidebar.bmp
-│   └── logo.svg
-├── screenshots
-│   ├── adblock.png
-│   ├── anime.png
-│   ├── api-settings_tmdb.png
-│   ├── application_tmdb.png
-│   ├── download.png
-│   ├── icon.png
-│   ├── movie.png
-│   ├── personal-use_tmdb.png
-│   ├── series.png
-│   ├── setup.png
-│   ├── signup_tmdb.png
-│   ├── subs.png
-│   ├── token_tmdb.png
-│   └── trending.png
-└── src
-    ├── App.jsx
-    ├── main.jsx
-    ├── components
-    │   ├── BlockedStatsModal.jsx
-    │   ├── CloseConfirmModal.jsx
-    │   ├── DownloadModal.jsx
-    │   ├── ErrorBoundary.jsx
-    │   ├── Icons.jsx
-    │   ├── KeyboardShortcutsModal.jsx
-    │   ├── MediaCard.jsx
-    │   ├── SearchModal.jsx
-    │   ├── SetupScreen.jsx
-    │   ├── Sidebar.jsx
-    │   ├── SubtitleDownloaderModal.jsx
-    │   ├── TrailerModal.jsx
-    │   ├── TrendingCarousel.jsx
-    │   ├── UpdateModal.jsx
-    │   └── WindowTitlebar.jsx
-    ├── ipc
-    │   ├── allmanga.js
-    │   ├── blockStats.js
-    │   ├── downloads.js
-    │   ├── player.js
-    │   ├── storage.js
-    │   └── subtitles.js
-    ├── pages
-    │   ├── DownloadsPage.jsx
-    │   ├── HomePage.jsx
-    │   ├── LibraryPage.jsx
-    │   ├── MoviePage.jsx
-    │   ├── SettingsPage.jsx
-    │   └── TVPage.jsx
-    ├── styles
-    │   ├── global.css
-    │   └── fonts
-    │       ├── bebas-neue-regular.woff2
-    │       ├── dm-sans-300.woff2
-    │       ├── dm-sans-500.woff2
-    │       ├── dm-sans-600.woff2
-    │       └── dm-sans-regular.woff2
-    └── utils
-        ├── ageRating.js
-        ├── aniSkip.js
-        ├── api.js
-        ├── appearance.js
-        ├── backup.js
-        ├── episodeMappings.js
-        ├── homeLayout.js
-        ├── storage.js
-        ├── subtitles.js
-        ├── updates.js
-        ├── useBlockedStats.js
-        └── useRatings.js
-```
-</details>
