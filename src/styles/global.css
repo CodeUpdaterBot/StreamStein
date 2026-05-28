@@ -1803,12 +1803,23 @@ kbd {
     color: var(--text1);
     font-size: 14px;
     text-align: center;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .local-video-player__error-hint {
     font-size: 12px;
     color: var(--text2);
+}
+
+.local-video-player__error-link {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--red);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
 }
 
 .playback-mode-toggle {

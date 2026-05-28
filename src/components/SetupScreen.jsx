@@ -138,7 +138,7 @@ export default function SetupScreen({ onSave, onSkip }) {
           <br />
           <ExternalLink
             className="apikey-link"
-            href="https://github.com/truelockmc/streambert/blob/main/tmdb-tutorial.md"
+            href="https://github.com/CodeUpdaterBot/StreamStein/blob/main/tmdb-tutorial.md"
           >
             Step-by-step guide on how to get that Token
           </ExternalLink>

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 const PROGRESS_TICK_MS = 5000;
+const FFMPEG_WINDOWS_URL = "https://www.gyan.dev/ffmpeg/builds/";
+const FFMPEG_SETUP_SEARCH_URL =
+  "https://www.google.com/search?q=install+ffmpeg+windows+10+add+to+PATH";
 
 function mediaErrorMessage(video) {
   const err = video?.error;
@@ -17,6 +20,38 @@ function mediaErrorMessage(video) {
     default:
       return err.message || "Playback failed";
   }
+}
+
+function openExternal(url) {
+  if (window.electron?.openExternal) {
+    window.electron.openExternal(url);
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
+function FfmpegInstallHint() {
+  return (
+    <span className="local-video-player__error-hint">
+      Install FFmpeg/FFprobe and restart Streamstein if this file needs codec
+      conversion. On Windows, use the FFmpeg builds and put{" "}
+      <code>C:\ffmpeg\bin</code> on PATH.{" "}
+      <button
+        type="button"
+        className="local-video-player__error-link"
+        onClick={() => openExternal(FFMPEG_WINDOWS_URL)}
+      >
+        FFmpeg download
+      </button>{" "}
+      <button
+        type="button"
+        className="local-video-player__error-link"
+        onClick={() => openExternal(FFMPEG_SETUP_SEARCH_URL)}
+      >
+        setup help
+      </button>
+    </span>
+  );
 }
 
 /**
@@ -202,6 +237,7 @@ export default function LocalVideoPlayer({
         className={`local-video-player local-video-player--error ${className}`}
       >
         <span>{loadError}</span>
+        <FfmpegInstallHint />
       </div>
     );
   }
@@ -228,6 +264,7 @@ export default function LocalVideoPlayer({
           <span className="local-video-player__error-hint">
             Try Stream mode, or re-download this file.
           </span>
+          <FfmpegInstallHint />
         </div>
       )}
       <video

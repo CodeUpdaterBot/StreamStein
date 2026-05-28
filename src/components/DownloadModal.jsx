@@ -432,7 +432,11 @@ export default function DownloadModal({
       ? "For MacOS you will have to compile it yourself"
       : "Linux_x64-portable";
   const releaseUrl =
-    "https://github.com/truelockmc/vid-dl-cli-only/releases/latest";
+    "https://github.com/CodeUpdaterBot/vid-dl-cli-only/releases/latest";
+  const ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/";
+  const ffmpegSetupSearchUrl =
+    "https://www.google.com/search?q=install+ffmpeg+windows+10+add+to+PATH";
+  const isWindows = ua.includes("win");
 
   useEffect(() => {
     if (!downloaderFolder || !isElectron) return;
@@ -1068,11 +1072,41 @@ export default function DownloadModal({
                             window.electron.openExternal(releaseUrl);
                         }}
                       >
-                        github.com/truelockmc/vid-dl-cli-only/releases/latest
+                        github.com/CodeUpdaterBot/vid-dl-cli-only/releases/latest
                       </a>{" "}
                       , for your OS: <code>{binaryHint}</code>
                     </li>
                     <li>Extract the release into a folder of your choice</li>
+                    {isWindows && (
+                      <li>
+                        If downloads or local playback mention missing codecs,
+                        install{" "}
+                        <a
+                          className="download-link"
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            isElectron && window.electron.openExternal(ffmpegUrl);
+                          }}
+                        >
+                          FFmpeg for Windows
+                        </a>{" "}
+                        and make sure <code>ffmpeg.exe</code> and{" "}
+                        <code>ffprobe.exe</code> are on PATH, or in{" "}
+                        <code>C:\ffmpeg\bin</code>.{" "}
+                        <a
+                          className="download-link"
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            isElectron &&
+                              window.electron.openExternal(ffmpegSetupSearchUrl);
+                          }}
+                        >
+                          Setup help
+                        </a>
+                      </li>
+                    )}
                     <li>
                       Select that folder below, it must contain{" "}
                       <code>_internal</code> and the binary
@@ -1120,10 +1154,21 @@ export default function DownloadModal({
                         {(downloader.reason === "no_executable" ||
                           !downloader.reason) && (
                           <>
-                            No executable binary found. On Linux, make sure the
-                            binary has execute permissions (
-                            <code>chmod +x</code>
-                            ).
+                            {isWindows ? (
+                              <>
+                                No executable binary found. Select the extracted{" "}
+                                <code>{binaryHint}</code> folder that contains
+                                both <code>_internal</code> and the downloader{" "}
+                                <code>.exe</code>.
+                              </>
+                            ) : (
+                              <>
+                                No executable binary found. On Linux, make sure
+                                the binary has execute permissions (
+                                <code>chmod +x</code>
+                                ).
+                              </>
+                            )}
                           </>
                         )}
                       </div>

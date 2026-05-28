@@ -218,7 +218,7 @@ function register(getMainWindow, { writeSecretMigration }) {
       }
 
       const TRUSTED_ORIGIN   = "https://github.com";
-      const TRUSTED_PATH     = "/truelockmc/streambert/releases/download/";
+      const TRUSTED_PATH     = "/CodeUpdaterBot/StreamStein/releases/download/";
       // Domains that are allowed as redirect targets (GitHub CDN).
       const ALLOWED_REDIRECT_HOSTS = [
         "github.com",

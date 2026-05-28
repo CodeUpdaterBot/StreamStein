@@ -1,10 +1,10 @@
 {
   "name": "streamstein",
   "version": "2.4.0",
-  "description": "Streamstein Desktop App",
+  "description": "StreamStein Desktop App",
   "author": {
-    "name": "truelockmc",
-    "email": "anonyson@proton.me"
+    "name": "Steven Steinbeck",
+    "email": "stevensteinbeck42@gmail.com"
   },
   "license": "GPL-3.0",
   "main": "index.js",
@@ -38,8 +38,8 @@
     "vite": "^7.3.1"
   },
   "build": {
-    "appId": "com.truelockmc.streamstein",
-    "productName": "Streamstein",
+    "appId": "com.stevensteinbeck.streamstein",
+    "productName": "StreamStein",
     "asar": true,
     "compression": "normal",
     "directories": {
