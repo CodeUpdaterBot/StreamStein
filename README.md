@@ -3,15 +3,15 @@
 [![Issues Badge](https://img.shields.io/github/issues/truelockmc/streambert?style=for-the-badge)](https://github.com/truelockmc/streambert/issues)
 [![Closed Issues Badge](https://img.shields.io/github/issues-closed/truelockmc/streambert?color=%238256d0&style=for-the-badge)](https://github.com/truelockmc/streambert/issues?q=is%3Aissue+is%3Aclosed)<br>
 
-[![GitHub](https://img.shields.io/badge/GitHub-truelockmc%2Fstreambert-181717?style=for-the-badge&logo=github)](https://github.com/truelockmc/streambert)
-[![Codeberg](https://img.shields.io/badge/Codeberg-truelockmc%2Fstreambert-2185D0?style=for-the-badge&logo=codeberg)](https://codeberg.org/truelockmc/streambert)
+[![GitHub](https://img.shields.io/badge/GitHub-truelockmc%2Fstreamstein-181717?style=for-the-badge&logo=github)](https://github.com/truelockmc/streambert)
+[![Codeberg](https://img.shields.io/badge/Codeberg-truelockmc%2Fstreamstein-2185D0?style=for-the-badge&logo=codeberg)](https://codeberg.org/truelockmc/streambert)
 [![AUR Version](https://img.shields.io/aur/version/streambert-bin?style=for-the-badge&logo=archlinux)](https://aur.archlinux.org/packages/streambert-bin)
-# Streambert
+# Streamstein
 A cross-platform Electron Desktop App to stream and download any Movie, TV Series or Anime in the World. Zero Ads and Tracking <br></br>
 ![Logo](public/logo.svg)
 [Installation](https://github.com/truelockmc/streambert?tab=readme-ov-file#requirements)
 
-## Why Streambert?
+## Why Streamstein?
 - 🎦 **Streaming:** Stream any Movie, Anime or TV Series from around the World.
 - 📥 **Downloading:** Download anything you want to watch.
 - 📃 **Subtitles:** Download and manage Subtitles.
@@ -72,12 +72,12 @@ sudo dpkg -i streambert_*.deb
 sudo pacman -U streambert-*.pacman
 
 # .AppImage (you can also do it with Gearlever)
-chmod +x Streambert-x64.AppImage && ./Streambert-x64.AppImage
+chmod +x Streamstein-x64.AppImage && ./Streamstein-x64.AppImage
 ```
 
 ### Windows
 
-Download the latest `Streambert Setup *.exe` from the [Releases](https://github.com/truelockmc/streambert/releases/latest) page and run it.
+Download the latest `Streamstein Setup *.exe` from the [Releases](https://github.com/truelockmc/streambert/releases/latest) page and run it.
 
 ---
 
@@ -113,7 +113,7 @@ npm run dist:appimage
 
 **IMPORTANT: This application is for educational and personal use only.**
 
-- Streambert does not host, store, or distribute any copyrighted content
+- Streamstein does not host, store, or distribute any copyrighted content
 - All content is sourced from third-party providers and websites
 - Users are solely responsible for ensuring they have legal rights to access any content
 - The developer does not endorse or encourage copyright infringement
@@ -130,7 +130,7 @@ This application is provided "as is" for educational purposes. The developer:
 - Does not control third-party content providers
 - Encourages users to support content creators through legal means
 
-[![RepoStars](https://repostars.dev/api/embed?repo=truelockmc%2Fstreambert&theme=dark)](https://repostars.dev/?repos=truelockmc%2Fstreambert&theme=dark)
+[![RepoStars](https://repostars.dev/api/embed?repo=truelockmc%2Fstreamstein&theme=dark)](https://repostars.dev/?repos=truelockmc%2Fstreamstein&theme=dark)
 
 <details>
     <summary>Project Structure</summary>

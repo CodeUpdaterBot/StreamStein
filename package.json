@@ -1,0 +1,172 @@
+{
+  "name": "streamstein",
+  "version": "2.4.0",
+  "description": "Streamstein Desktop App",
+  "author": {
+    "name": "truelockmc",
+    "email": "anonyson@proton.me"
+  },
+  "license": "GPL-3.0",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "dev": "vite build --watch",
+    "start": "vite build && electron .",
+    "dist": "cross-env ELECTRON_DIST=1 vite build && npm run dist:linux && npm run dist:win && npm run dist:mac",
+    "dist:linux": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux deb AppImage pacman --publish never",
+    "dist:deb": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux deb --publish never",
+    "dist:arch": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux pacman --publish never",
+    "dist:appimage": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux AppImage --publish never",
+    "dist:win": "cross-env ELECTRON_DIST=1 vite build && electron-builder --win --publish never",
+    "dist:mac": "cross-env ELECTRON_DIST=1 vite build && electron-builder --mac --universal --publish never",
+    "test:media-playback": "node --test src/utils/mediaPlayback.test.mjs"
+  },
+  "dependencies": {
+    "@videojs/react": "^10.0.0-beta.24",
+    "bonjour-service": "^1.3.0",
+    "castv2-client": "^0.0.2",
+    "dlnacasts3": "^1.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "cross-env": "^7.0.3",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0",
+    "terser": "^5.46.0",
+    "vite": "^7.3.1"
+  },
+  "build": {
+    "appId": "com.truelockmc.streamstein",
+    "productName": "Streamstein",
+    "asar": true,
+    "compression": "normal",
+    "directories": {
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/mac/**",
+      "!dist/mac-arm64/**",
+      "!dist/mac-universal/**",
+      "!dist/mac-universal-x64-temp/**",
+      "!dist/mac-universal-arm64-temp/**",
+      "!dist/win-unpacked/**",
+      "!dist/linux-unpacked/**",
+      "!dist/*.dmg",
+      "!dist/*.exe",
+      "!dist/*.deb",
+      "!dist/*.AppImage",
+      "!dist/*.blockmap",
+      "!dist/*.yaml",
+      "!dist/.icon-icns/**",
+      "src/ipc/**/*",
+      "index.js",
+      "preload.js",
+      "package.json",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/*.ts",
+      "!**/*.d.ts",
+      "!**/node_modules/.cache/**",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,changelog.md,CHANGES,LICENCE,LICENSE}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples,benchmark,benchmarks}/**",
+      "!**/node_modules/.bin/**",
+      "!**/node_modules/*/*.d.ts",
+      "!**/{.eslintrc,.babelrc,.editorconfig,.nycrc}",
+      "!**/{jest.config,jest.config.js,jest.config.ts}",
+      "!**/node_modules/*/docs/**",
+      "!**/node_modules/vite/**",
+      "!**/node_modules/@vitejs/**",
+      "!**/node_modules/terser/**",
+      "!**/node_modules/rollup/**",
+      "!**/node_modules/esbuild/**",
+      "!**/node_modules/@esbuild/**",
+      "!**/node_modules/@rollup/**"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createStartMenuShortcut": true,
+      "selectPerMachineByDefault": false,
+      "license": "LICENSE",
+      "uninstallDisplayName": "Uninstall Streamstein",
+      "installerSidebar": "public/installer-sidebar.bmp"
+    },
+    "win": {
+      "icon": "public/icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "icon": "public/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.entertainment"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "pacman",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "icon": "public/sized",
+      "desktop": {
+        "entry": {
+          "Name": "Streamstein",
+          "Comment": "Streamstein Desktop App",
+          "Categories": "AudioVideo;Video;Player;Multimedia;Internet;",
+          "Icon": "streamstein",
+          "StartupWMClass": "Streamstein"
+        }
+      }
+    },
+    "electronLanguages": [
+      "en-US",
+      "de"
+    ],
+    "asarUnpack": [
+      "src/styles/fonts/**"
+    ]
+  }
+}
