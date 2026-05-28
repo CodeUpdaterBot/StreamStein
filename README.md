@@ -31,19 +31,22 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 ---
 
 ## Requirements
-
 - [Node.js](https://nodejs.org/) (>=22.12.0) installed
 - A free TMDB API Read Access Token ([Guide on how to get one](tmdb-tutorial.md))
 - [ffmpeg](https://ffmpeg.org/download.html) Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
 - For downloading, [this Program](https://github.com/truelockmc/vid-dl-cli-only/releases/latest) somewhere on your PC (can select folder in STREAMSTEIN)
 
 ---
-## Installation
-Download the latest code from this Github repository. On first launch you'll be prompted to enter your TMDB API key. ([Guide on how to get one](tmdb-tutorial.md))
-It's saved locally, you only need to do this once.
+## Easy Installation (Windows-only)
+- Download the latest .exe from the Releases section of this GitHub repo
+
+## Installation from Source (Cross-platform)
+- Download the code from this repo and follow the below commands to build it from source.
+
+- Either way, upon first launch you'll be prompted to enter your TMDB API key. ([Guide on how to get one](tmdb-tutorial.md))
+It's saved locally, you only need to do this once, just do it now so everythign loads/populates correctly.
 
 ---
-
 
 ## Building from Source
 0. cd your terminal to the StreamStein folder you downloaded (not the .zip, the un-zipped folder)
@@ -55,6 +58,28 @@ npm install
 ```bash
 npm start
 ```
+3. Build for Production
+```bash
+npm run dist:win
+```
+or
+```bash
+npm run dist:linux
+```
+or (for Arch Linux)
+```bash
+npm run dist:arch
+```
+or (for an AppImage only)
+```bash
+npm run dist:appimage
+```
+
+> [!IMPORTANT]
+> If you are building/installing on Arch Linux and encounter errors, you may need these libraries:
+> - **libcrypt.so.1 error:** `sudo pacman -S libxcrypt-compat`
+> - **http-parser dependency error:** `yay -S http-parser` (from AUR)
+
 
 ## Anime
 You can also watch Anime, the App checks if a Movie or Series is an Anime and then sources its Metadata from [AniList](https://anilist.co/) instead of [tmdb](https://www.themoviedb.org/). <br></br>
@@ -80,4 +105,4 @@ This application is provided "as is" for educational purposes. The developer:
 - Does not control third-party content providers
 - Encourages users to support content creators through legal means
 
-[![RepoStars](https://repostars.dev/api/embed?repo=truelockmc%2Fstreamstein&theme=dark)](https://repostars.dev/?repos=truelockmc%2Fstreamstein&theme=dark)
+[![RepoStars](https://repostars.dev/api/embed?repo=CodeUpdaterBot%2Fstreamstein&theme=dark)](https://repostars.dev/?repos=CodeUpdaterBot%2Fstreamstein&theme=dark)
