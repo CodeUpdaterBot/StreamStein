@@ -40,8 +40,8 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 
 - [Node.js](https://nodejs.org/) (>=22.12.0) installed
 - A free TMDB API Read Access Token ([Guide on how to get one](tmdb-tutorial.md))
-- [ffmpeg](https://ffmpeg.org/download.html) Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein and not in any other folders.
-- For downloading, [this Program](https://github.com/truelockmc/vid-dl-cli-only/releases/latest) somewhere on your PC (can select folder in STREAMSTEIN).
+- [ffmpeg](https://ffmpeg.org/download.html) Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
+- For downloading, [this Program](https://github.com/truelockmc/vid-dl-cli-only/releases/latest) somewhere on your PC (can select folder in STREAMSTEIN)
 
 ---
 ## Installation
