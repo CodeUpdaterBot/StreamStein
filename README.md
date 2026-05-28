@@ -1,6 +1,6 @@
 # Streamstein
 A cross-platform Electron Desktop App to stream and download any Movie, TV Series or Anime in the World. Zero Ads and Tracking. An improved version of Streambert by truelockmc<br></br>
-![Logo](public/logo.svg)
+![Logo](public/series-page.png)
 [Installation](https://github.com/truelockmc/streambert?tab=readme-ov-file#requirements)
 
 ## Why Streamstein?
