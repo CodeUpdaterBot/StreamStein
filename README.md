@@ -106,4 +106,6 @@ This application is provided "as is" for educational purposes. The developer:
 - Does not control third-party content providers
 - Encourages users to support content creators through legal means
 
-[![RepoStars](https://repostars.dev/api/embed?repo=CodeUpdaterBot%2Fstreamstein&theme=dark)](https://repostars.dev/?repos=CodeUpdaterBot%2Fstreamstein&theme=dark)
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=CodeUpdaterBot/StreamStein.git&type=date&legend=top-left)](https://www.star-history.com/?repos=CodeUpdaterBot%2FStreamStein.git&type=date&legend=top-left)
