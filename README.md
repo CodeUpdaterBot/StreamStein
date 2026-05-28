@@ -50,56 +50,23 @@ Media Files for Animes are scraped from AllManga.to (original technique from [an
 
 ---
 ## Installation
-On first launch you'll be prompted to enter your TMDB API key. ([Guide on how to get one](tmdb-tutorial.md))
+Download the latest code from this Github repository. On first launch you'll be prompted to enter your TMDB API key. ([Guide on how to get one](tmdb-tutorial.md))
 It's saved locally, you only need to do this once.
-
-### Linux, Manual (.deb / .AppImage / .pacman)
-
-Download the latest `.deb` `.pacman` or `.AppImage` from the [Releases](https://github.com/truelockmc/streambert/releases/latest) page.
-```bash
-# .deb
-sudo dpkg -i streambert_*.deb
-
-# Arch Linux (.pacman)
-sudo pacman -U streambert-*.pacman
-
-# .AppImage (you can also do it with Gearlever)
-chmod +x Streamstein-x64.AppImage && ./Streamstein-x64.AppImage
-```
-
-### Windows
-
-Download the latest `Streamstein Setup *.exe` from the [Releases](https://github.com/truelockmc/streambert/releases/latest) page and run it.
 
 ---
 
 
 ## Building from Source
+0. cd your terminal to the StreamStein folder you downloaded (not the .zip, the un-zipped folder)
 1. Install dependencies:
 ```bash
 npm install
 ```
 2. Build
 ```bash
-npm run dist:win
-```
-or
-```bash
-npm run dist:linux
-```
-or (for Arch Linux)
-```bash
-npm run dist:arch
-```
-or (for an AppImage only)
-```bash
-npm run dist:appimage
+npm start
 ```
 
-> [!IMPORTANT]
-> If you are building/installing on Arch Linux and encounter errors, you may need these libraries:
-> - **libcrypt.so.1 error:** `sudo pacman -S libxcrypt-compat`
-> - **http-parser dependency error:** `yay -S http-parser` (from AUR)
 
 ## Legal Disclaimer
 
