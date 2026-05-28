@@ -36,11 +36,6 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 
 ---
 
-## Anime
-You can also watch Anime, the App checks if a Movie or Series is an Anime and then sources its Metadata from [AniList](https://anilist.co/) instead of [tmdb](https://www.themoviedb.org/). <br></br>
-Media Files for Animes are scraped from AllManga.to (original technique from [ani-cli](https://github.com/pystardust/ani-cli)). The App directly gets .mp4 Files and doesnt even show you the AllManga website, you can also download these Files, just like any other Content.
-
-
 ## Requirements
 
 - [Node.js](https://nodejs.org/) (>=22.12.0) installed
@@ -67,7 +62,9 @@ npm install
 npm start
 ```
 
-
+## Anime
+You can also watch Anime, the App checks if a Movie or Series is an Anime and then sources its Metadata from [AniList](https://anilist.co/) instead of [tmdb](https://www.themoviedb.org/). <br></br>
+Media Files for Animes are scraped from AllManga.to (original technique from [ani-cli](https://github.com/pystardust/ani-cli)). The App directly gets .mp4 Files and doesnt even show you the AllManga website, you can also download these Files, just like any other Content.
 ## Legal Disclaimer
 
 **IMPORTANT: This application is for educational and personal use only.**
