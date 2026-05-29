@@ -37,7 +37,7 @@ Once you click 'Download' these Links are used to download the Full Movie/TV Epi
 - [ffmpeg](https://ffmpeg.org/download.html)
 - For downloading, [this Program](https://github.com/CodeUpdaterBot/vid-dl-cli-only/releases/latest) somewhere on your PC (you can select the folder later in the StreamStein Settings)
 > [!IMPORTANT]
-> Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
+> Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein if you are building from source
 
 ---
 ## Easy Installation (Windows-only)
