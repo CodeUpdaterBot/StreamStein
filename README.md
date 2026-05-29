@@ -56,11 +56,11 @@ It's saved locally, you only need to do this once, just do it now so everythign 
 ```bash
 npm install
 ```
-2. Build & launch
+2. Build & Launch (to just run the app on your device)
 ```bash
 npm start
 ```
-3. Build for Production
+3. Build for Production (optional)
 ```bash
 npm run dist:win
 ```
