@@ -1,4 +1,4 @@
-# STREAMSTEIN
+# STREAMinSTEIN
 A cross-platform Electron Desktop App to stream and download any Movie, TV Series or Anime in the World. Zero Ads and Tracking. An improved version of Streambert by truelockmc.<br></br>
 ![Intro/Hero](screenshots/intro.png)
 ![Use Cases](screenshots/series-page.png)
