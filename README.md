@@ -31,12 +31,13 @@ The Application mainly gets Video Streams from VidEasy & VidSrc (you can also St
 Once you click 'Download' these Links are used to download the Full Movie/TV Episode using [this Program](https://github.com/CodeUpdaterBot/vid-dl-cli-only). You can then watch them In-App or take the Files on any Storage Medium you want.
 
 ---
-
 ## Requirements
 - [Node.js](https://nodejs.org/) (>=22.12.0) installed
 - A free TMDB API Read Access Token ([Guide on how to get one](tmdb-tutorial.md))
-- [ffmpeg](https://ffmpeg.org/download.html) Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
+- [ffmpeg](https://ffmpeg.org/download.html)
 - For downloading, [this Program](https://github.com/CodeUpdaterBot/vid-dl-cli-only/releases/latest) somewhere on your PC (you can select the folder later in the StreamStein Settings)
+> [!IMPORTANT]
+> Make sure to put ffmpeg.exe, ffplay.exe, and ffprobe.exe files into the root/main parent folder of StreamStein
 
 ---
 ## Easy Installation (Windows-only)
