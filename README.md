@@ -110,4 +110,4 @@ This application is provided "as is" for educational purposes. The developer:
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=CodeUpdaterBot/StreamStein.git&type=date&legend=top-left)](https://www.star-history.com/?repos=CodeUpdaterBot%2FStreamStein.git&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=CodeUpdaterBot/StreamStein&type=date&legend=top-left)](https://www.star-history.com/?repos=CodeUpdaterBot%2FStreamStein&type=date&legend=top-left)
