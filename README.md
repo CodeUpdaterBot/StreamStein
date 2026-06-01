@@ -103,10 +103,10 @@ Media Files for Animes are scraped from AllManga.to (original technique from [an
 ## Legal Notice
 
 This application is provided "as is" for educational purposes. The developer:
-- Does not claim ownership of any content
 - Does not profit from copyrighted material in any way
 - Does not control third-party content providers
 - Encourages users to support content creators through legal means
+- Requires citation and written credit statement if any portion or dervation of this project is used in another project (like 'Huge thanks to SteStein.com for their work on Streamstein, which this project was based on.' or something similar (SteStein is my portfolio website).
 
 ## Star History
 
