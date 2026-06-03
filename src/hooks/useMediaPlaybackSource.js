@@ -20,26 +20,38 @@ export function useMediaPlaybackSource({
   episode,
   downloads,
   streamAvailable = true,
+  /** When set, use this completed download entry instead of the downloads registry. */
+  localDownloadOverride = null,
 }) {
   const [fileExists, setFileExists] = useState(null);
   const [localPlayerUrl, setLocalPlayerUrl] = useState(null);
+  const [localPrepareMode, setLocalPrepareMode] = useState(null);
   const [userPreference, setUserPreference] = useState(() => {
     const key = playbackModeStorageKey(progressKey);
     const v = storage.get(key);
     return v === "local" || v === "stream" ? v : null;
   });
   const [localFailed, setLocalFailed] = useState(false);
+  const [localLoadError, setLocalLoadError] = useState(null);
   const localFailedRef = useRef(false);
 
   const localDownload = useMemo(
     () =>
+      localDownloadOverride ??
       findLocalDownloadCandidate(downloads, {
         mediaType,
         tmdbId,
         season,
         episode,
       }),
-    [downloads, mediaType, tmdbId, season, episode],
+    [
+      localDownloadOverride,
+      downloads,
+      mediaType,
+      tmdbId,
+      season,
+      episode,
+    ],
   );
 
   const descriptor = useMemo(
@@ -92,9 +104,12 @@ export function useMediaPlaybackSource({
   useEffect(() => {
     if (!playing) {
       setLocalPlayerUrl(null);
+      setLocalPrepareMode(null);
+      setLocalLoadError(null);
       return;
     }
     setLocalFailed(false);
+    setLocalLoadError(null);
     localFailedRef.current = false;
   }, [playing, progressKey, localDownload?.filePath]);
 
@@ -116,6 +131,8 @@ export function useMediaPlaybackSource({
 
     let mounted = true;
     setLocalPlayerUrl(null);
+    setLocalPrepareMode(null);
+    setLocalLoadError(null);
     const startTime = storage.get("dlTime_" + progressKey) || 0;
 
     window.electron
@@ -123,20 +140,31 @@ export function useMediaPlaybackSource({
       .then((r) => {
         if (!mounted) return;
         if (r?.ok && r.url) {
+          setLocalLoadError(null);
+          setLocalPrepareMode(r.prepareMode || null);
           setLocalPlayerUrl(r.url);
         } else if (r?.superseded) {
           // A newer local media request is already in flight; don't fall back to Stream.
           return;
         } else {
-          reportLocalPlaybackError();
+          const msg = r?.error || "Could not open local file";
+          setLocalLoadError(msg);
+          if (streamAvailable) {
+            reportLocalPlaybackError();
+          }
         }
       })
-      .catch(() => {
-        if (mounted) reportLocalPlaybackError();
+      .catch((err) => {
+        if (!mounted) return;
+        setLocalLoadError(err?.message || "Could not open local file");
+        if (streamAvailable) {
+          reportLocalPlaybackError();
+        }
       });
 
     return () => {
       mounted = false;
+      window.electron?.localMediaRelease?.();
     };
   }, [
     playing,
@@ -172,6 +200,9 @@ export function useMediaPlaybackSource({
     localDownload,
     localPath: descriptor?.localPath ?? null,
     localPlayerUrl,
+    localPrepareMode,
+    localLoadError,
+    setLocalLoadError,
     setPlaybackMode,
     reportLocalPlaybackError,
     userPreference,

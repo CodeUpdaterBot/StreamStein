@@ -18,6 +18,8 @@ export const BACKUP_KEYS = [
   "homeRowOrder",
   "homeRowVisible",
   "homeViewMode",
+  "sidebarNavOrder",
+  "sidebarNavVisible",
   "startPage",
   // Player preferences
   "playerSource",
@@ -32,6 +34,14 @@ export const BACKUP_KEYS = [
   "subtitleLang",
   // Paths & folders
   "downloadPath",
+  "youtubeFolder",
+  "youtubeSortBy",
+  "youtubeSortDir",
+  "youtubeViewMode",
+  "youtubeSearchQuery",
+  "youtubeSearchOpen",
+  "youtubeDeleteSkipConfirm",
+  "youtubeEnrichMatchConfig",
   "downloaderFolder",
   // Misc settings
   "invidiousBase",
@@ -40,6 +50,8 @@ export const BACKUP_KEYS = [
   "searchHistory",
   // Appearance & behaviour
   "accentColor",
+  "appTheme",
+  "setupWizardComplete",
   "fontSize",
   "compactMode",
   "reduceAnimations",

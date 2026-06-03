@@ -266,4 +266,6 @@ module.exports = {
   writeSecretMigration,
   loadScheduledBackupSettings,
   shouldRunScheduledBackup,
+  secureStoreGet,
+  secureStoreSet,
 };

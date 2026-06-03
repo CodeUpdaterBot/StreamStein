@@ -10,6 +10,7 @@ const crypto = require("crypto");
 const https = require("https");
 const http = require("http");
 const os = require("os");
+const toolPaths = require("./toolPaths");
 
 // ── Download store ────────────────────────────────────────────────────────────
 
@@ -243,27 +244,7 @@ function touchDownloadActivity(id, extra = {}) {
 }
 
 function findFfmpeg() {
-  const platform = process.platform;
-  const candidates =
-    platform === "win32"
-      ? ["ffmpeg", "C:\\ffmpeg\\bin\\ffmpeg.exe"]
-      : platform === "darwin"
-        ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]
-        : ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"];
-  for (const bin of candidates) {
-    try {
-      const which = spawnSync(
-        platform === "win32" ? "where" : "which",
-        [bin],
-        { encoding: "utf8" },
-      );
-      if (which.status === 0 && which.stdout.trim()) {
-        return which.stdout.trim().split("\n")[0].trim();
-      }
-    } catch {}
-    if (path.isAbsolute(bin) && fs.existsSync(bin)) return bin;
-  }
-  return null;
+  return toolPaths.resolveTool("ffmpeg");
 }
 
 function normalizeStem(s) {
@@ -827,6 +808,95 @@ function ensureStallMonitor() {
   if (stallInterval) return;
   stallInterval = setInterval(checkDownloadStalls, STALL_CHECK_MS);
   if (typeof stallInterval.unref === "function") stallInterval.unref();
+}
+
+const OUTPUT_VIDEO_EXTS = [".mp4", ".mkv", ".webm", ".mov", ".m4v"];
+
+function validateDownloaderFolder(folderPath) {
+  if (!folderPath) return { ok: false, reason: "no_folder" };
+  let entries;
+  try {
+    entries = fs.readdirSync(folderPath);
+  } catch (e) {
+    const reason =
+      e.code === "EACCES" ? "folder_permission" : "folder_unreadable";
+    return { ok: false, reason };
+  }
+  if (!entries.includes("_internal")) {
+    return { ok: false, reason: "no_internal" };
+  }
+  const binary = entries.find((e) => {
+    if (e === "_internal" || e.startsWith(".")) return false;
+    try {
+      const stat = fs.statSync(path.join(folderPath, e));
+      if (!stat.isFile()) return false;
+      return process.platform === "win32"
+        ? e.endsWith(".exe")
+        : !!(stat.mode & 0o111);
+    } catch {
+      return false;
+    }
+  });
+  if (!binary) return { ok: false, reason: "no_executable" };
+
+  const token = crypto.randomUUID();
+  trustedBinaryPaths.set(token, path.join(folderPath, binary));
+  return { ok: true, token, exists: true };
+}
+
+function extractM3u8FromLog(logPath) {
+  if (!logPath) return null;
+  try {
+    if (!fs.existsSync(logPath)) return null;
+    const text = fs.readFileSync(logPath, "utf8");
+    let lastUrl = null;
+    for (const line of text.split("\n")) {
+      const m = line.match(/^\s*URL:\s*(.+)\s*$/i);
+      if (!m) continue;
+      const url = m[1].trim();
+      if (!url || url.startsWith("(")) continue;
+      lastUrl = url;
+    }
+    return lastUrl;
+  } catch {
+    return null;
+  }
+}
+
+/** Remove partials and failed outputs so a retry starts clean. */
+function purgeDownloadArtifacts(dl) {
+  if (!dl) return;
+  const stem = getSafeStem(dl.name);
+
+  if (dl.filePath) unlinkWithRetry(dl.filePath);
+
+  for (const sp of dl.subtitlePaths || []) {
+    try {
+      if (sp?.path && fs.existsSync(sp.path)) unlinkWithRetry(sp.path);
+    } catch {}
+  }
+
+  if (!dl.downloadPath) return;
+
+  cleanupTempFiles(dl.downloadPath, dl.name, { forceStemParts: true });
+
+  try {
+    for (const entry of fs.readdirSync(dl.downloadPath)) {
+      const full = path.join(dl.downloadPath, entry);
+      let st;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (!st.isFile()) continue;
+      const ext = path.extname(entry).toLowerCase();
+      if (!OUTPUT_VIDEO_EXTS.includes(ext)) continue;
+      if (!fileMatchesStem(entry, stem)) continue;
+      const incompleteMsg = detectIncompleteDownload(dl, full);
+      if (incompleteMsg || dl.status === "error") unlinkWithRetry(full);
+    }
+  } catch {}
 }
 
 function cleanupTempFiles(downloadPath, nameStem, opts = {}) {
@@ -1456,38 +1526,11 @@ function register(getMainWindow) {
 
   // ── downloader binary detection ──────────────────────────────────────────
   ipcMain.handle("check-downloader", (_, folderPath) => {
-    if (!folderPath) return { exists: false, reason: "no_folder" };
-    let entries;
-    try {
-      entries = fs.readdirSync(folderPath);
-    } catch (e) {
-      const reason =
-        e.code === "EACCES" ? "folder_permission" : "folder_unreadable";
-      return { exists: false, reason };
+    const result = validateDownloaderFolder(folderPath);
+    if (!result.ok) {
+      return { exists: false, reason: result.reason };
     }
-    if (!entries.includes("_internal")) {
-      return { exists: false, reason: "no_internal" };
-    }
-    const binary = entries.find((e) => {
-      if (e === "_internal" || e.startsWith(".")) return false;
-      try {
-        const stat = fs.statSync(path.join(folderPath, e));
-        if (!stat.isFile()) return false;
-        return process.platform === "win32"
-          ? e.endsWith(".exe")
-          : !!(stat.mode & 0o111);
-      } catch {
-        return false;
-      }
-    });
-    if (!binary) return { exists: false, reason: "no_executable" };
-
-    // Store the validated path in the Main process only and hand a token to
-    // the Renderer.  The Renderer passes the token back when starting a
-    // download; the real path is never exposed outside the Main process.
-    const token = crypto.randomUUID();
-    trustedBinaryPaths.set(token, path.join(folderPath, binary));
-    return { exists: true, token };
+    return { exists: true, token: result.token };
   });
 
   // ── start download ────────────────────────────────────────────────────────
@@ -1543,6 +1586,109 @@ function register(getMainWindow) {
   }));
 
   ipcMain.handle("get-downloads", () => downloads);
+
+  ipcMain.handle(
+    "retry-download",
+    (_, { id, token, downloaderFolder } = {}) => {
+      try {
+        const idx = downloads.findIndex((d) => d.id === id);
+        if (idx === -1) {
+          return { ok: false, code: "NOT_FOUND", error: "Download not found" };
+        }
+        const old = downloads[idx];
+        if (old.status !== "error") {
+          return {
+            ok: false,
+            code: "NOT_ERROR",
+            error: "Only failed downloads can be retried from here",
+          };
+        }
+
+        let useToken = token;
+        if (!useToken) {
+          const dlCheck = validateDownloaderFolder(downloaderFolder);
+          if (!dlCheck.ok) {
+            return {
+              ok: false,
+              code: "NO_DOWNLOADER",
+              error:
+                "Downloader not configured. Set the downloader folder on a movie or TV page, or in Settings.",
+            };
+          }
+          useToken = dlCheck.token;
+        } else if (!trustedBinaryPaths.has(useToken)) {
+          const dlCheck = validateDownloaderFolder(downloaderFolder);
+          if (!dlCheck.ok) {
+            return {
+              ok: false,
+              code: "NO_DOWNLOADER",
+              error:
+                "Downloader session expired. Open a movie or TV page to refresh the downloader, then try again.",
+            };
+          }
+          useToken = dlCheck.token;
+        }
+
+        const m3u8Url =
+          old.m3u8Url || extractM3u8FromLog(old.logPath);
+        if (!m3u8Url) {
+          return {
+            ok: false,
+            code: "NO_STREAM_URL",
+            error:
+              "No saved stream link for this download. Open the title, play the episode to capture a fresh link, then download again.",
+          };
+        }
+        if (!old.downloadPath) {
+          return {
+            ok: false,
+            code: "NO_PATH",
+            error: "Download folder is missing for this entry.",
+          };
+        }
+
+        purgeDownloadArtifacts(old);
+
+        const snapshot = {
+          name: old.name,
+          downloadPath: old.downloadPath,
+          mediaId: old.mediaId,
+          mediaType: old.mediaType,
+          season: old.season,
+          episode: old.episode,
+          posterPath: old.posterPath,
+          tmdbId: old.tmdbId,
+          subtitles: Array.isArray(old.subtitles) ? [...old.subtitles] : [],
+          seriesBatchId: old.seriesBatchId || null,
+        };
+
+        downloads.splice(idx, 1);
+        saveDownloads();
+
+        const result = enqueueDownload({
+          token: useToken,
+          m3u8Url,
+          ...snapshot,
+        });
+        if (!result.ok) {
+          downloads.push({ ...old, ...snapshot, m3u8Url });
+          saveDownloads();
+          return result;
+        }
+
+        const entry = downloads.find((d) => d.id === result.id);
+        return {
+          ok: true,
+          id: result.id,
+          queued: !!result.queued,
+          entry: entry ? { ...entry } : null,
+          replacedId: id,
+        };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    },
+  );
 
   ipcMain.handle("delete-download", (_, { id, filePath }) => {
     try {
@@ -1621,8 +1767,19 @@ function register(getMainWindow) {
   });
 
   ipcMain.handle("show-in-folder", (_, filePath) => {
-    if (filePath && fs.existsSync(filePath)) shell.showItemInFolder(filePath);
-    else shell.openPath(path.dirname(filePath || ""));
+    if (!filePath) return;
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        shell.openPath(filePath);
+      } else if (fs.existsSync(filePath)) {
+        shell.showItemInFolder(filePath);
+      } else {
+        shell.openPath(path.dirname(filePath));
+      }
+    } catch {
+      shell.openPath(path.dirname(filePath));
+    }
   });
 
   ipcMain.handle("file-exists", (_, filePath) => {

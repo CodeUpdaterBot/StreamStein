@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import UpdateModal from "../components/UpdateModal";
 import {
   storage,
@@ -8,11 +8,17 @@ import {
   clearAppCaches,
 } from "../utils/storage";
 import { clearTmdbCache } from "../utils/api";
-import { ACCENT_PRESETS, applyAccentColor } from "../utils/appearance";
+import {
+  ACCENT_PRESETS,
+  THEME_PRESETS,
+  applyAccentColor,
+  applyTheme,
+} from "../utils/appearance";
 import { SUBTITLE_LANGUAGES } from "../utils/subtitles";
 import { DEFAULT_INVIDIOUS_BASE } from "../components/TrailerModal";
 import { RATING_COUNTRIES } from "../utils/ageRating";
 import { WarningIcon } from "../components/Icons";
+import YoutubeMetadataSyncSection from "../components/YoutubeMetadataSyncSection";
 import { checkForUpdates } from "../utils/updates";
 import {
   HOME_ROWS,
@@ -20,8 +26,31 @@ import {
   loadHomeViewMode,
   saveHomeViewMode,
 } from "../utils/homeLayout";
+import {
+  SIDEBAR_NAV_ITEMS,
+  SIDEBAR_ITEM_LABELS,
+  loadSidebarLayout,
+  saveSidebarLayout,
+} from "../utils/sidebarLayout";
+import {
+  HomeIcon,
+  HistoryIcon,
+  DownloadsQueueIcon,
+  YouTubeIcon,
+  HelpIcon,
+  SettingsIcon,
+  QuitIcon,
+} from "../components/Icons";
 import { collectBackupData, restoreBackupData } from "../utils/backup";
 import { formatBytes } from "../utils/storage";
+import {
+  persistLibraryPaths,
+  markSetupWizardComplete,
+  hasStoredLibraryFolders,
+  resolveLibraryPaths,
+  getStoredMoviesPath,
+  getStoredYoutubePath,
+} from "../utils/libraryPaths";
 
 // ── Custom Select ─────────────────────────────────────────────────────────────
 function SettingsSelect({ value, onChange, options, style }) {
@@ -368,6 +397,8 @@ function ConfirmDialog({
 function Toggle({ value, onChange, title }) {
   return (
     <button
+      type="button"
+      className={`appearance-toggle${value ? "" : " appearance-toggle--off"}`}
       onClick={() => onChange(!value)}
       title={title}
       style={{
@@ -561,7 +592,7 @@ function VersionSection() {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">App Version</div>
 
       {/* Version row */}
@@ -726,7 +757,7 @@ function HomeLayoutSection() {
   const rowLabels = Object.fromEntries(HOME_ROWS.map((r) => [r.id, r.label]));
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Home Page Layout</div>
       <div
         style={{
@@ -859,6 +890,203 @@ function HomeLayoutSection() {
             />
           </div>
         ))}
+      </div>
+
+      <div
+        style={{
+          marginTop: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <button className="btn btn-primary" onClick={handleSave}>
+          Save Layout
+        </button>
+        {saved && (
+          <span style={{ fontSize: 13, color: "#48c774" }}>✓ Saved</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SIDEBAR_LAYOUT_ICONS = {
+  home: HomeIcon,
+  history: HistoryIcon,
+  downloads: DownloadsQueueIcon,
+  youtube: YouTubeIcon,
+  help: HelpIcon,
+  settings: SettingsIcon,
+  quit: QuitIcon,
+};
+
+// ── Sidebar Layout Section ────────────────────────────────────────────────────
+function SidebarLayoutSection() {
+  const [order, setOrder] = useState(() => {
+    const { order: o } = loadSidebarLayout();
+    return o;
+  });
+  const [visible, setVisible] = useState(() => {
+    const { visible: v } = loadSidebarLayout();
+    return v;
+  });
+  const [saved, setSaved] = useState(false);
+  const dragItem = useRef(null);
+  const dragOver = useRef(null);
+
+  const handleDragStart = (idx) => {
+    dragItem.current = idx;
+  };
+  const handleDragEnter = (idx) => {
+    dragOver.current = idx;
+  };
+  const handleDragEnd = () => {
+    if (dragItem.current === null || dragOver.current === null) return;
+    const newOrder = [...order];
+    const dragged = newOrder.splice(dragItem.current, 1)[0];
+    newOrder.splice(dragOver.current, 0, dragged);
+    dragItem.current = null;
+    dragOver.current = null;
+    setOrder(newOrder);
+  };
+
+  const toggleVisible = (id) => {
+    setVisible((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleSave = () => {
+    saveSidebarLayout(order, visible);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const firstBottomIdx = order.findIndex((id) =>
+    SIDEBAR_NAV_ITEMS.some((item) => item.id === id && item.zone === "bottom"),
+  );
+
+  return (
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
+      <div className="settings-section-title">Menu Sidebar Layout</div>
+      <div
+        style={{
+          fontSize: 13,
+          color: "var(--text3)",
+          marginBottom: 16,
+          lineHeight: 1.6,
+          maxWidth: 520,
+        }}
+      >
+        Choose which sidebar menu buttons appear and drag to reorder them. Search,
+        Back, and your watchlist thumbnails stay in fixed positions. Page links
+        appear above the watchlist; Help, Settings, and Quit stay pinned at the
+        bottom.
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          maxWidth: 480,
+        }}
+      >
+        {order.map((id, idx) => {
+          const Icon = SIDEBAR_LAYOUT_ICONS[id];
+          const showWatchlistHint =
+            firstBottomIdx >= 0 && idx === firstBottomIdx;
+
+          return (
+            <div key={id}>
+              {showWatchlistHint && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 4px",
+                    marginBottom: 8,
+                    color: "var(--text3)",
+                    fontSize: 12,
+                    fontStyle: "italic",
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      background: "var(--border)",
+                    }}
+                  />
+                  <span style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+                    Watchlist thumbnails
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      height: 1,
+                      background: "var(--border)",
+                    }}
+                  />
+                </div>
+              )}
+              <div
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragEnter={() => handleDragEnter(idx)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => e.preventDefault()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  cursor: "grab",
+                  opacity: visible[id] ? 1 : 0.45,
+                  transition: "opacity 0.2s",
+                  userSelect: "none",
+                }}
+              >
+                <span
+                  style={{
+                    color: "var(--text3)",
+                    fontSize: 16,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  ⠿
+                </span>
+
+                <span
+                  className={`sidebar-layout-icon-preview${id === "quit" ? " sidebar-layout-icon-preview--quit" : ""}`}
+                >
+                  {Icon ? <Icon /> : null}
+                </span>
+
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: id === "quit" ? "#e53e3e" : "var(--text)",
+                  }}
+                >
+                  {SIDEBAR_ITEM_LABELS[id] || id}
+                </span>
+
+                <Toggle
+                  value={visible[id]}
+                  onChange={() => toggleVisible(id)}
+                  title={visible[id] ? "Hide menu item" : "Show menu item"}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div
@@ -1097,12 +1325,13 @@ function BackupRestoreSection({ onRestored }) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const backup = JSON.parse(ev.target.result);
         if (!backup?.data)
           throw new Error("Invalid backup file, missing data field.");
         restoreBackupData(backup.data);
+        await resolveLibraryPaths();
         setRestoreStatus("✓ Backup restored: reloading…");
         setTimeout(() => window.location.reload(), 1200);
         onRestored?.();
@@ -1117,7 +1346,7 @@ function BackupRestoreSection({ onRestored }) {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Backup &amp; Restore</div>
       <div
         style={{
@@ -1195,6 +1424,10 @@ function AppearanceSection() {
   const [accent, setAccent] = useState(
     () => storage.get(STORAGE_KEYS.ACCENT_COLOR) || "red",
   );
+  const [theme, setTheme] = useState(() => {
+    const stored = storage.get(STORAGE_KEYS.APP_THEME) || "midnight";
+    return stored === "forest" ? "rose" : stored;
+  });
   const [fontSize, setFontSize] = useState(
     () => storage.get(STORAGE_KEYS.FONT_SIZE) || "normal",
   );
@@ -1206,13 +1439,22 @@ function AppearanceSection() {
   );
   const [saved, setSaved] = useState(false);
 
+  const selectAccent = (id) => {
+    setAccent(id);
+    applyAccentColor(id);
+    storage.set(STORAGE_KEYS.ACCENT_COLOR, id);
+  };
+
+  const selectTheme = (id) => {
+    setTheme(id);
+    applyTheme(id);
+    storage.set(STORAGE_KEYS.APP_THEME, id);
+  };
+
   const handleSave = () => {
-    storage.set(STORAGE_KEYS.ACCENT_COLOR, accent);
     storage.set(STORAGE_KEYS.FONT_SIZE, fontSize);
     storage.set(STORAGE_KEYS.COMPACT_MODE, compact ? 1 : 0);
     storage.set(STORAGE_KEYS.REDUCE_ANIMATIONS, noAnim ? 1 : 0);
-    // Apply immediately
-    applyAccentColor(accent);
     const zoomMap = { sm: 0.85, normal: 1, lg: 1.15 };
     if (window.electron?.setZoomFactor)
       window.electron.setZoomFactor(zoomMap[fontSize] ?? 1);
@@ -1223,49 +1465,112 @@ function AppearanceSection() {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Appearance</div>
 
-      {/* Accent Colour */}
-      <div style={{ marginBottom: 24 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--text2)",
-            marginBottom: 10,
-          }}
-        >
-          Accent Colour
+      {/* Accent Colour + App Theme (side by side) */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 40,
+          marginBottom: 24,
+          alignItems: "flex-start",
+        }}
+      >
+        <div style={{ flex: "1 1 220px", minWidth: 200, maxWidth: 360 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--text2)",
+              marginBottom: 10,
+            }}
+          >
+            Accent Colour
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {ACCENT_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => selectAccent(p.id)}
+                title={p.label}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  background: p.color,
+                  border:
+                    accent === p.id
+                      ? `3px solid var(--text)`
+                      : "3px solid transparent",
+                  outline: accent === p.id ? `2px solid ${p.color}` : "none",
+                  outlineOffset: 2,
+                  cursor: "pointer",
+                  transition: "transform 0.15s",
+                  transform: accent === p.id ? "scale(1.15)" : "scale(1)",
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 8 }}>
+            {ACCENT_PRESETS.find((p) => p.id === accent)?.label}, applied to
+            buttons, highlights, and indicators.
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {ACCENT_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setAccent(p.id)}
-              title={p.label}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                background: p.color,
-                border:
-                  accent === p.id
-                    ? `3px solid var(--text)`
-                    : "3px solid transparent",
-                outline: accent === p.id ? `2px solid ${p.color}` : "none",
-                outlineOffset: 2,
-                cursor: "pointer",
-                transition: "transform 0.15s",
-                transform: accent === p.id ? "scale(1.15)" : "scale(1)",
-                flexShrink: 0,
-              }}
-            />
-          ))}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 8 }}>
-          {ACCENT_PRESETS.find((p) => p.id === accent)?.label}, applied to
-          buttons, highlights, and indicators.
+
+        <div style={{ flex: "1 1 220px", minWidth: 200, maxWidth: 400 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--text2)",
+              marginBottom: 10,
+            }}
+          >
+            App Theme
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {THEME_PRESETS.map((t) => {
+              const selected = theme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => selectTheme(t.id)}
+                  title={t.label}
+                  aria-label={t.label}
+                  aria-pressed={selected}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    padding: 0,
+                    cursor: "pointer",
+                    border: selected
+                      ? "3px solid var(--text)"
+                      : "2px solid var(--border)",
+                    outline: selected
+                      ? `2px solid ${t.swatch.sidebar}`
+                      : "none",
+                    outlineOffset: 2,
+                    overflow: "hidden",
+                    flexShrink: 0,
+                    transition: "transform 0.15s",
+                    transform: selected ? "scale(1.12)" : "scale(1)",
+                    background: `linear-gradient(90deg, ${t.swatch.sidebar} 50%, ${t.swatch.bg} 50%)`,
+                    boxShadow: selected
+                      ? "0 2px 8px rgba(0,0,0,0.2)"
+                      : "none",
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 8 }}>
+            {THEME_PRESETS.find((t) => t.id === theme)?.description}
+          </div>
         </div>
       </div>
 
@@ -1382,7 +1687,7 @@ function LibraryPrivacySection() {
   ];
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Library & Privacy</div>
 
       {/* Watchlist Sort */}
@@ -1474,7 +1779,7 @@ function StartPageSection() {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Start Page</div>
       <div
         style={{
@@ -1501,6 +1806,7 @@ function StartPageSection() {
             { value: "home", label: "🏠  Home" },
             { value: "history", label: "🕐  Library / History" },
             { value: "downloads", label: "⬇  Downloads" },
+            { value: "youtube", label: "▶  YouTube" },
           ]}
         />
         <button className="btn btn-primary" onClick={handleSave}>
@@ -1553,7 +1859,7 @@ function TmdbLanguageSection() {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Metadata Language</div>
       <div
         style={{
@@ -1667,7 +1973,7 @@ function SubtitleSettingsSection() {
   };
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Subtitle Downloads</div>
 
       {/* Source info */}
@@ -2052,7 +2358,7 @@ function CastSettingsSection() {
   );
 
   return (
-    <div>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       {castToggleRow(
         autoDiscover,
         toggleAuto,
@@ -2233,7 +2539,7 @@ function NotificationsSection() {
   );
 
   return (
-    <div style={{ marginBottom: 40 }}>
+    <div className="settings-panel" style={{ marginBottom: 40 }}>
       <div className="settings-section-title">Desktop Notifications</div>
       <div
         style={{
@@ -2414,14 +2720,39 @@ const SECTION_NAV = [
       "folder",
       "path",
       "save",
-      "video",
       "movies",
+      "tv",
       "files",
       "queue",
       "concurrent",
       "throttle",
       "limit",
       "parallel",
+      "library",
+    ],
+  },
+  {
+    id: "youtube",
+    label: "YouTube",
+    icon: "▶",
+    keywords: [
+      "youtube",
+      "extension",
+      "chrome",
+      "downloader",
+      "catalog",
+      "bridge",
+      "backend",
+      "metadata",
+      "enrich",
+      "sync",
+      "thumbnail",
+      "matching",
+      "library folder",
+      "admin",
+      "testing",
+      "metadata test",
+      "clone",
     ],
   },
   {
@@ -2475,6 +2806,9 @@ const SECTION_NAV = [
       "compact",
       "animation",
       "theme",
+      "gray",
+      "rose",
+      "ocean",
       "rows",
       "hero",
     ],
@@ -2525,7 +2859,7 @@ const SECTION_NAV = [
   },
 ];
 
-function SettingsTopBar({ sectionRefs, contentRef }) {
+function SettingsTopBar({ sectionRefs, contentRef, onRunSetupWizard }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -2746,6 +3080,7 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
 
   return (
     <div
+      className="settings-top-bar"
       style={{
         position: "sticky",
         top: 0,
@@ -2769,6 +3104,7 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
           {searchOpen ? (
             <div
               ref={searchBarRef}
+              className="settings-search-field"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -2949,6 +3285,8 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
             </div>
           ) : (
             <button
+              type="button"
+              className="settings-search-field"
               onClick={() => setSearchOpen(true)}
               style={{
                 display: "flex",
@@ -2968,7 +3306,7 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
                 (e.currentTarget.style.background = "var(--surface3)")
               }
               onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "var(--surface2)")
+                (e.currentTarget.style.background = "var(--surface-inset, var(--surface2))")
               }
             >
               <svg
@@ -3003,9 +3341,22 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
           )}
         </div>
 
+        {onRunSetupWizard && isElectron && (
+          <button
+            type="button"
+            className="btn btn-ghost setup-wizard-replay-btn"
+            onClick={onRunSetupWizard}
+            title="Re-run TMDB token and library folder setup"
+          >
+            Setup wizard
+          </button>
+        )}
+
         {/* ── Jump to section dropdown ── */}
         <div ref={navRef} style={{ position: "relative", flexShrink: 0 }}>
           <button
+            type="button"
+            className="settings-jump-btn"
             onClick={() => setNavOpen((o) => !o)}
             style={{
               display: "flex",
@@ -3138,11 +3489,20 @@ function SettingsTopBar({ sectionRefs, contentRef }) {
 export default function SettingsPage({
   apiKey,
   onChangeApiKey,
+  onRunSetupWizard,
   initialSection,
+  onShowToast,
 }) {
-  const [downloadPath, setDownloadPath] = useState(
-    () => storage.get(STORAGE_KEYS.DOWNLOAD_PATH) || "",
-  );
+  const [downloadPath, setDownloadPath] = useState(() => getStoredMoviesPath());
+  const [youtubeFolder, setYoutubeFolder] = useState(() => getStoredYoutubePath());
+  const [youtubeSaved, setYoutubeSaved] = useState(false);
+  const [ytBridgeStatus, setYtBridgeStatus] = useState(null);
+  const [ytBridgeStartup, setYtBridgeStartup] = useState(() => {
+    const stored = storage.get(STORAGE_KEYS.YT_BRIDGE_STARTUP);
+    return stored === null || stored === undefined ? true : !!stored;
+  });
+  const [extensionRoot, setExtensionRoot] = useState("");
+  const [extensionCopied, setExtensionCopied] = useState(false);
   const [downloadMaxConcurrent, setDownloadMaxConcurrent] = useState(() => {
     const v = storage.get(STORAGE_KEYS.DOWNLOAD_MAX_CONCURRENT);
     return v == null ? 3 : Math.max(1, Math.min(20, Number(v) || 3));
@@ -3166,6 +3526,8 @@ export default function SettingsPage({
   const secPlayback = useRef(null);
   const secSubtitles = useRef(null);
   const secDownloads = useRef(null);
+  const secYoutube = useRef(null);
+  const secYoutubeMetadata = useRef(null);
   const secCast = useRef(null);
   const secNotifications = useRef(null);
   const secInterface = useRef(null);
@@ -3179,6 +3541,8 @@ export default function SettingsPage({
     playback: secPlayback,
     subtitles: secSubtitles,
     downloads: secDownloads,
+    youtube: secYoutube,
+    "youtube-metadata": secYoutubeMetadata,
     cast: secCast,
     notifications: secNotifications,
     interface: secInterface,
@@ -3190,6 +3554,30 @@ export default function SettingsPage({
   // Ref for find-in-page search scope
   const contentRef = useRef(null);
 
+  const applyPathsFromStore = useCallback(async () => {
+    const paths = await resolveLibraryPaths();
+    setDownloadPath(paths.movies || "");
+    setYoutubeFolder(paths.youtube || "");
+    return paths;
+  }, []);
+
+  useEffect(() => {
+    applyPathsFromStore();
+    const onPathsChanged = () => {
+      applyPathsFromStore();
+    };
+    window.addEventListener(
+      "streamstein-library-paths-changed",
+      onPathsChanged,
+    );
+    return () => {
+      window.removeEventListener(
+        "streamstein-library-paths-changed",
+        onPathsChanged,
+      );
+    };
+  }, [applyPathsFromStore]);
+
   // Scroll to initial section if provided (e.g. when navigating from a modal)
   useEffect(() => {
     if (!initialSection) return;
@@ -3200,7 +3588,7 @@ export default function SettingsPage({
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 120);
     return () => clearTimeout(t);
-  }, []);
+  }, [initialSection]);
 
   // Age Rating
   const [ratingCountry, setRatingCountry] = useState(
@@ -3295,19 +3683,102 @@ export default function SettingsPage({
     })();
   }, []);
 
+  useEffect(() => {
+    if (!isElectron || !window.electron?.getBundledTools) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const [tools, bridge, startup] = await Promise.all([
+          window.electron.getBundledTools(),
+          window.electron.getYtBridgeStatus?.(),
+          window.electron.getYtBridgeStartup?.(),
+        ]);
+        if (!mounted) return;
+        if (tools?.extensionRoot) setExtensionRoot(tools.extensionRoot);
+        if (bridge) setYtBridgeStatus(bridge);
+        if (startup?.ok) {
+          setYtBridgeStartup(!!startup.startOnLaunch);
+          storage.set(STORAGE_KEYS.YT_BRIDGE_STARTUP, !!startup.startOnLaunch);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const copyExtensionPath = () => {
+    if (!extensionRoot) return;
+    navigator.clipboard.writeText(extensionRoot).then(() => {
+      setExtensionCopied(true);
+      setTimeout(() => setExtensionCopied(false), 2000);
+    });
+  };
+
+  const handleYtBridgeStartupToggle = async (enabled) => {
+    setYtBridgeStartup(enabled);
+    storage.set(STORAGE_KEYS.YT_BRIDGE_STARTUP, enabled);
+    if (!isElectron || !window.electron?.setYtBridgeStartup) {
+      onShowToast?.(
+        enabled
+          ? "YouTube backend will start on app launch"
+          : "YouTube backend will not start on app launch",
+        { variant: "success" },
+      );
+      return;
+    }
+    try {
+      const result = await window.electron.setYtBridgeStartup(enabled);
+      if (result) setYtBridgeStatus(result);
+      onShowToast?.(
+        enabled
+          ? "YouTube backend will start on app launch"
+          : "YouTube backend stopped — will not start on launch",
+        { variant: "success" },
+      );
+    } catch {
+      setYtBridgeStartup(!enabled);
+      storage.set(STORAGE_KEYS.YT_BRIDGE_STARTUP, !enabled);
+      onShowToast?.("Could not update YouTube backend setting");
+    }
+  };
+
   const pickFolder = async () => {
     if (!isElectron) return;
     const folder = await window.electron.pickFolder();
     if (folder) {
       setDownloadPath(folder);
-      storage.set(STORAGE_KEYS.DOWNLOAD_PATH, folder);
+      await persistLibraryPaths({ movies: folder, youtube: youtubeFolder });
+      if (hasStoredLibraryFolders()) await markSetupWizardComplete();
       flash();
     }
   };
 
-  const handleSavePath = () => {
-    storage.set(STORAGE_KEYS.DOWNLOAD_PATH, downloadPath);
+  const pickYoutubeFolder = async () => {
+    if (!isElectron) return;
+    const folder = await window.electron.pickFolder();
+    if (folder) {
+      setYoutubeFolder(folder);
+      await persistLibraryPaths({ movies: downloadPath, youtube: folder });
+      if (hasStoredLibraryFolders()) await markSetupWizardComplete();
+      setYoutubeSaved(true);
+      setTimeout(() => setYoutubeSaved(false), 2000);
+    }
+  };
+
+  const handleSavePath = async () => {
+    await persistLibraryPaths({ movies: downloadPath, youtube: youtubeFolder });
+    if (hasStoredLibraryFolders()) await markSetupWizardComplete();
     flash();
+  };
+
+  const handleSaveYoutubePath = async () => {
+    await persistLibraryPaths({ movies: downloadPath, youtube: youtubeFolder });
+    if (hasStoredLibraryFolders()) await markSetupWizardComplete();
+    setYoutubeSaved(true);
+    setTimeout(() => setYoutubeSaved(false), 2000);
   };
 
   const handleSaveDownloadLimit = async () => {
@@ -3422,11 +3893,15 @@ export default function SettingsPage({
       )}
 
       {/* ── Sticky search & navigation bar ── */}
-      <SettingsTopBar sectionRefs={sectionRefs} contentRef={contentRef} />
+      <SettingsTopBar
+        sectionRefs={sectionRefs}
+        contentRef={contentRef}
+        onRunSetupWizard={onRunSetupWizard}
+      />
 
       <div
         ref={contentRef}
-        className="fade-in"
+        className="fade-in settings-content"
         style={{ padding: "40px 48px 80px" }}
       >
         {/* Page title */}
@@ -3442,7 +3917,7 @@ export default function SettingsPage({
         </div>
         <div style={{ color: "var(--text3)", fontSize: 14, marginBottom: 36 }}>
           App configuration for Streamstein, an improved version of Streambert. <br /><br />
-          Improvements include a button to download the entire series of a TV show (rather than have to do each episode manually), proper parallellization limits to prevent server bans when mass-downloading content, improved download and fragment handling so downloads complete successfully more often, and more. Streambert was a great app, but we've made it materially better and didn't want to confuse any branding or IP, so we're calling this new app Streamstein.
+          Improvements include YouTube functionality & bundled Extension, a button to download the entire series of a TV show (rather than have to do each episode manually), proper parallellization limits to prevent server bans when mass-downloading content, improved download and fragment handling so downloads complete successfully more often, and more. Streambert was a great app, but we've made it materially better and didn't want to confuse any branding or IP, so we're calling this new app Streamstein.
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════ */}
@@ -3460,7 +3935,7 @@ export default function SettingsPage({
           <Divider />
 
           {/* TMDB API Token */}
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">TMDB Read Access Token</div>
             <div
               style={{
@@ -3513,7 +3988,7 @@ export default function SettingsPage({
             subtitle="Parental controls and content filtering by age rating"
           />
 
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">
               Age Rating &amp; Parental Controls
             </div>
@@ -3597,7 +4072,7 @@ export default function SettingsPage({
           />
 
           {/* Invidious */}
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">Invidious Instance</div>
             <div
               style={{
@@ -3692,7 +4167,7 @@ export default function SettingsPage({
           <Divider />
 
           {/* Auto-Watched Threshold */}
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">Auto-Watched Threshold</div>
             <div
               style={{
@@ -3743,7 +4218,7 @@ export default function SettingsPage({
           </div>
 
           {/* Intro Skip */}
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">Anime Intro Skip</div>
             <div
               style={{
@@ -3881,11 +4356,11 @@ export default function SettingsPage({
         <div ref={secDownloads} style={{ scrollMarginTop: 80 }}>
           <SectionGroupHeader
             title="Downloads"
-            subtitle="Download folder and how many downloads run at the same time"
+            subtitle="Movies & TV library folder and concurrent download queue"
           />
 
-          <div style={{ marginBottom: 40 }}>
-            <div className="settings-section-title">Download Folder</div>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
+            <div className="settings-section-title">Movies & TV library folder</div>
             <div
               style={{
                 fontSize: 13,
@@ -3894,8 +4369,9 @@ export default function SettingsPage({
                 lineHeight: 1.6,
               }}
             >
-              Downloaded videos will be saved here. Make sure the folder exists
-              and Streamstein has write access to it.
+              Streamstein saves movie and TV downloads here (for example{" "}
+              <code>Movies_TV</code> or your preferred library folder). Make
+              sure the folder exists and Streamstein has write access.
             </div>
             <div
               style={{
@@ -3908,7 +4384,7 @@ export default function SettingsPage({
               <input
                 className="apikey-input"
                 style={{ flex: 1, minWidth: 260, marginBottom: 0 }}
-                placeholder="/home/you/Movies"
+                placeholder="C:\Users\You\Videos\Movies_TV"
                 value={downloadPath}
                 onChange={(e) => setDownloadPath(e.target.value)}
               />
@@ -3934,7 +4410,7 @@ export default function SettingsPage({
             )}
           </div>
 
-          <div style={{ marginBottom: 40 }}>
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
             <div className="settings-section-title">Concurrent Downloads</div>
             <div
               style={{
@@ -3988,6 +4464,218 @@ export default function SettingsPage({
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* GROUP: YOUTUBE                                                     */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        <div ref={secYoutube} style={{ scrollMarginTop: 80 }}>
+          <SectionGroupHeader
+            title="YouTube"
+            subtitle="YouTube library folder, downloader extension, and catalog metadata"
+          />
+
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
+            <div className="settings-section-title">YouTube library folder</div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text3)",
+                marginBottom: 16,
+                lineHeight: 1.6,
+              }}
+            >
+              Folder used by the YouTube Downloader Extension. Streamstein reads{" "}
+              <code>youtube-catalog.json</code> from this location to show your
+              downloaded YouTube videos on the YouTube tab. Default is{" "}
+              <code>Downloads\YouTube</code>.
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                className="apikey-input"
+                style={{ flex: 1, minWidth: 260, marginBottom: 0 }}
+                placeholder="C:\Users\You\Downloads\YouTube"
+                value={youtubeFolder}
+                onChange={(e) => setYoutubeFolder(e.target.value)}
+              />
+              {isElectron && (
+                <button className="btn btn-secondary" onClick={pickYoutubeFolder}>
+                  Browse …
+                </button>
+              )}
+              <button className="btn btn-primary" onClick={handleSaveYoutubePath}>
+                Save
+              </button>
+            </div>
+            {youtubeSaved && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#4caf50" }}>
+                ✓ Saved
+              </div>
+            )}
+          </div>
+
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap",
+                marginBottom: 14,
+              }}
+            >
+              <div
+                className="settings-section-title"
+                style={{ marginBottom: 0 }}
+              >
+                YouTube Downloader Extension
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text3)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Start on app launch
+                </span>
+                <Toggle
+                  value={ytBridgeStartup}
+                  onChange={handleYtBridgeStartupToggle}
+                  title={
+                    ytBridgeStartup
+                      ? "YouTube backend starts with StreamStein"
+                      : "YouTube backend does not start automatically"
+                  }
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text3)",
+                marginBottom: 16,
+                lineHeight: 1.6,
+              }}
+            >
+              {ytBridgeStartup
+                ? "Streamstein starts the download backend automatically when the app runs (port 8789). Load the bundled Chrome extension once — then downloads from YouTube in your browser use Streamstein as the server."
+                : "The download backend is off until you restart it below or turn this back on. The Chrome extension will not work until the backend is running."}
+            </div>
+            {ytBridgeStatus && (
+              <div
+                style={{
+                  marginBottom: 14,
+                  fontSize: 13,
+                  color: ytBridgeStatus.running ? "#4caf50" : "var(--red)",
+                }}
+              >
+                {ytBridgeStatus.running
+                  ? `✓ Backend running at ${ytBridgeStatus.url || "http://127.0.0.1:8789"}`
+                  : `⚠ Backend not running${ytBridgeStatus.error ? `: ${ytBridgeStatus.error}` : ""}`}
+              </div>
+            )}
+            <ol
+              style={{
+                fontSize: 13,
+                color: "var(--text3)",
+                marginBottom: 16,
+                paddingLeft: 20,
+                lineHeight: 1.7,
+              }}
+            >
+              <li>Open Chrome → Extensions → turn on Developer mode</li>
+              <li>Click Load unpacked and select the folder below</li>
+              <li>
+                Use the extension on YouTube while Streamstein is open
+              </li>
+            </ol>
+            {extensionRoot && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <code
+                  style={{
+                    flex: 1,
+                    minWidth: 260,
+                    fontSize: 12,
+                    padding: "10px 12px",
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {extensionRoot}
+                </code>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={copyExtensionPath}
+                >
+                  Copy path
+                </button>
+                {isElectron && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => window.electron.openPath(extensionRoot)}
+                  >
+                    Open folder
+                  </button>
+                )}
+                {isElectron && window.electron?.restartYtBridge && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      const r = await window.electron.restartYtBridge();
+                      setYtBridgeStatus(r);
+                    }}
+                  >
+                    Restart backend
+                  </button>
+                )}
+              </div>
+            )}
+            {extensionCopied && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#4caf50" }}>
+                ✓ Path copied
+              </div>
+            )}
+          </div>
+
+          <div
+            ref={secYoutubeMetadata}
+            id="youtube-metadata-sync"
+            style={{ scrollMarginTop: 80 }}
+          >
+            <YoutubeMetadataSyncSection
+              youtubeFolder={youtubeFolder}
+              onShowToast={onShowToast}
+            />
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════════ */}
         {/* GROUP: CAST & DEVICES                                              */}
         {/* ══════════════════════════════════════════════════════════════════ */}
         <div ref={secCast} style={{ scrollMarginTop: 80 }}>
@@ -4015,9 +4703,11 @@ export default function SettingsPage({
         <div ref={secInterface} style={{ scrollMarginTop: 80 }}>
           <SectionGroupHeader
             title="Interface"
-            subtitle="Home layout, start page, appearance, and display options"
+            subtitle="Home layout, sidebar menu, start page, appearance, and display options"
           />
           <HomeLayoutSection />
+          <Divider />
+          <SidebarLayoutSection />
           <Divider />
           <StartPageSection />
           <Divider />

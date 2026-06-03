@@ -272,27 +272,22 @@ function followRedirects(urlStr, maxHops = 10) {
 function resolveWithYtdlp(youtubeUrl) {
   return new Promise((resolve) => {
     const { spawnSync } = require("child_process");
-    // Check if yt-dlp is available
-    const which = spawnSync(
-      process.platform === "win32" ? "where" : "which",
-      ["yt-dlp"],
-      { encoding: "utf8" },
-    );
-    if (which.status !== 0) return resolve(null);
+    const toolPaths = require("./toolPaths");
+    const ytDlp = toolPaths.resolveTool("yt-dlp");
+    if (!ytDlp) return resolve(null);
 
     const result = spawnSync(
-      "yt-dlp",
+      ytDlp,
       [
         "--no-playlist",
         "-f",
         "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "-g", // print URL only
+        "-g",
         youtubeUrl,
       ],
       { encoding: "utf8", timeout: 30000 },
     );
     if (result.status !== 0 || !result.stdout?.trim()) return resolve(null);
-    // yt-dlp -g may return multiple lines (video+audio); take first
     resolve(result.stdout.trim().split("\n")[0]);
   });
 }

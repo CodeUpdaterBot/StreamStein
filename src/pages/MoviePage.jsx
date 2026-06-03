@@ -1099,6 +1099,7 @@ export default function MoviePage({
                 <LocalVideoPlayer
                   filePath={mediaPlayback.localPath}
                   sourceUrl={mediaPlayback.localPlayerUrl}
+                  prepareMode={mediaPlayback.localPrepareMode}
                   startTime={storage.get("dlTime_" + progressKey) || 0}
                   poster={
                     d.poster_path ? imgUrl(d.poster_path, "w780") : undefined

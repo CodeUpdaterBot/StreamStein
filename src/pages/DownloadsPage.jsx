@@ -101,6 +101,7 @@ export default function DownloadsPage({
   onClearHighlight,
   onSelect,
   onUpdateDownload,
+  onDownloadStarted,
   onSettings,
   searchOpen: searchOpenProp = false,
   onSearchClose,
@@ -130,6 +131,7 @@ export default function DownloadsPage({
   );
   const highlightRef = useRef(null);
   const [subtitleModalDl, setSubtitleModalDl] = useState(null);
+  const [retryingId, setRetryingId] = useState(null);
 
   // ── Toolbar state ─────────────────────────────────────────────
   const [showUntracked, setShowUntracked] = useState(
@@ -368,6 +370,68 @@ export default function DownloadsPage({
       onDeleteDownload(dl.id);
     },
     [onDeleteDownload],
+  );
+
+  const buildSelectPayload = useCallback((dl) => {
+    if (!dl.tmdbId || !dl.mediaType) return null;
+    return {
+      id: dl.tmdbId,
+      media_type: dl.mediaType,
+      title: dl.mediaType === "movie" ? dl.name : undefined,
+      name: dl.mediaType === "tv" ? dl.name : undefined,
+      poster_path: dl.posterPath || null,
+      season:
+        dl.mediaType === "tv" && dl.season != null
+          ? Number(dl.season)
+          : undefined,
+    };
+  }, []);
+
+  const handleTrashAndRetry = useCallback(
+    async (dl) => {
+      if (!isElectron || !window.electron?.retryDownload) return;
+      const downloaderFolder =
+        storage.get(STORAGE_KEYS.DOWNLOADER_FOLDER) ||
+        storage.get("downloaderFolder");
+      if (!downloaderFolder) {
+        alert(
+          "Downloader folder is not set. Configure it on a movie or TV page (Download button), then try again.",
+        );
+        return;
+      }
+      setRetryingId(dl.id);
+      try {
+        const result = await window.electron.retryDownload({
+          id: dl.id,
+          downloaderFolder,
+        });
+        if (!result?.ok) {
+          if (result?.code === "NO_STREAM_URL") {
+            const openTitle = confirm(
+              `${result.error}\n\nOpen this title now to capture a fresh stream link?`,
+            );
+            if (openTitle) {
+              const payload = buildSelectPayload(dl);
+              if (payload) onSelect?.(payload);
+            }
+          } else {
+            alert(result?.error || "Could not retry download.");
+          }
+          return;
+        }
+        if (dl.id) storage.set(DURATION_PREFIX + dl.id, null);
+        onDeleteDownload(dl.id);
+        if (result.entry) onDownloadStarted?.(result.entry);
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [
+      onDeleteDownload,
+      onDownloadStarted,
+      onSelect,
+      buildSelectPayload,
+    ],
   );
 
   return (
@@ -628,7 +692,9 @@ export default function DownloadsPage({
                   }
                   onHistory={onHistory}
                   onShowFolder={() =>
-                    window.electron?.showInFolder(dl.filePath)
+                    window.electron?.showInFolder(
+                      dl.filePath || dl.downloadPath,
+                    )
                   }
                   onDelete={dl.isLocalOnly ? undefined : () => handleDelete(dl)}
                   isHighlighted={isHighlighted}
@@ -636,26 +702,28 @@ export default function DownloadsPage({
                   watchedKey={watchedKey}
                   isWatched={watchedKey ? !!watched?.[watchedKey] : false}
                   onMarkWatched={
-                    watchedKey ? () => onMarkWatched?.(watchedKey) : null
+                    dl.status === "error"
+                      ? null
+                      : watchedKey
+                        ? () => onMarkWatched?.(watchedKey)
+                        : null
                   }
                   onMarkUnwatched={
-                    watchedKey ? () => onMarkUnwatched?.(watchedKey) : null
+                    dl.status === "error"
+                      ? null
+                      : watchedKey
+                        ? () => onMarkUnwatched?.(watchedKey)
+                        : null
                   }
+                  onTrashAndRetry={
+                    dl.status === "error" && !dl.isLocalOnly
+                      ? () => handleTrashAndRetry(dl)
+                      : null
+                  }
+                  retrying={retryingId === dl.id}
                   onSelect={
-                    dl.tmdbId && dl.mediaType
-                      ? () =>
-                          onSelect?.({
-                            id: dl.tmdbId,
-                            media_type: dl.mediaType,
-                            title:
-                              dl.mediaType === "movie" ? dl.name : undefined,
-                            name: dl.mediaType === "tv" ? dl.name : undefined,
-                            poster_path: dl.posterPath || null,
-                            season:
-                              dl.mediaType === "tv" && dl.season != null
-                                ? Number(dl.season)
-                                : undefined,
-                          })
+                    buildSelectPayload(dl)
+                      ? () => onSelect?.(buildSelectPayload(dl))
                       : null
                   }
                   onOpenSubtitleDownloader={
@@ -804,6 +872,8 @@ const LocalFileCard = memo(function LocalFileCard({
   isWatched,
   onMarkWatched,
   onMarkUnwatched,
+  onTrashAndRetry,
+  retrying = false,
   onSelect,
   watchedKey,
   onHistory,
@@ -813,6 +883,7 @@ const LocalFileCard = memo(function LocalFileCard({
 }) {
   const isDownload = !dl.isLocalOnly;
   const isError = dl.status === "error";
+  const folderPath = dl.filePath || dl.downloadPath;
   const canWatch =
     !!fileExists && !!dl.filePath && dl.status !== "error";
 
@@ -971,6 +1042,7 @@ const LocalFileCard = memo(function LocalFileCard({
   }, [dl.filePath, savedSecs, onWatch, onHistory, dl]);
 
   const progressLabel = (() => {
+    if (isError) return null;
     if (isWatched) return null;
     if (!storageKey) return null;
     if (!savedSecs) return "Not started";
@@ -1340,7 +1412,19 @@ const LocalFileCard = memo(function LocalFileCard({
         </div>
 
         <div className="dl-card__actions">
-          {onMarkWatched &&
+          {onTrashAndRetry ? (
+            <button
+              className="btn btn-ghost dl-btn--sm"
+              onClick={onTrashAndRetry}
+              disabled={retrying}
+              title="Delete partial files and retry with the original stream link"
+              style={{ color: "var(--red)", gap: 5 }}
+            >
+              <TrashIcon size={13} />
+              {retrying ? "Retrying…" : "Trash & Retry"}
+            </button>
+          ) : (
+            onMarkWatched &&
             (isWatched ? (
               <button
                 className="btn btn-ghost watched-btn dl-btn--sm"
@@ -1357,7 +1441,8 @@ const LocalFileCard = memo(function LocalFileCard({
               >
                 ✓ Mark Watched
               </button>
-            ))}
+            ))
+          )}
           {canWatch && (
             <button
               className="btn btn-primary dl-btn--sm-primary"
@@ -1378,7 +1463,7 @@ const LocalFileCard = memo(function LocalFileCard({
               <CastIcon />
             </button>
           )}
-          {dl.filePath && (
+          {folderPath && (
             <button
               className="btn btn-ghost dl-btn--sm-icon"
               onClick={onShowFolder}

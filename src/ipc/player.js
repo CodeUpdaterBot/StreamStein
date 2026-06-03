@@ -137,20 +137,14 @@ function register(getMainWindow, { writeSecretMigration }) {
   // ── Get video duration via ffprobe ────────────────────────────────────────
   ipcMain.handle("get-video-duration", async (_, filePath) => {
     if (!filePath) return { ok: false };
-    const platform = process.platform;
+    const toolPaths = require("./toolPaths");
+    const ffprobe = toolPaths.resolveTool("ffprobe");
+    const ffmpeg = toolPaths.resolveTool("ffmpeg");
 
-    // Probe paths for ffprobe
-    const probePaths =
-      platform === "win32"
-        ? ["ffprobe", "C:\\ffmpeg\\bin\\ffprobe.exe"]
-        : platform === "darwin"
-          ? ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "ffprobe"]
-          : ["/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "ffprobe"];
-
-    for (const probe of probePaths) {
+    if (ffprobe) {
       try {
         const result = spawnSync(
-          probe,
+          ffprobe,
           [
             "-v",
             "error",
@@ -169,17 +163,9 @@ function register(getMainWindow, { writeSecretMigration }) {
       } catch {}
     }
 
-    // Fallback: try ffmpeg -i and parse Duration line
-    const ffmpegPaths =
-      platform === "win32"
-        ? ["ffmpeg", "C:\\ffmpeg\\bin\\ffmpeg.exe"]
-        : platform === "darwin"
-          ? ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]
-          : ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"];
-
-    for (const ff of ffmpegPaths) {
+    if (ffmpeg) {
       try {
-        const r = spawnSync(ff, ["-i", filePath], {
+        const r = spawnSync(ffmpeg, ["-i", filePath], {
           encoding: "utf8",
           timeout: 8000,
         });

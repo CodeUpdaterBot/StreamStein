@@ -1062,6 +1062,67 @@ export default function TVPage({
     return map;
   }, [downloads, item.id]);
 
+  /** Episode titles/stills for series download modal (lazy per expanded season). */
+  const loadSeasonEpisodesForDownload = useCallback(
+    async (uiSeason) => {
+      if (episodeGroupData?.groups) {
+        const sortedGroups = [...episodeGroupData.groups].sort(
+          (a, b) => a.order - b.order,
+        );
+        const group = sortedGroups[uiSeason - 1];
+        if (!group) return [];
+        return [...(group.episodes || [])]
+          .sort((a, b) => a.order - b.order)
+          .map((ep, i) => ({
+            uiEpisode: i + 1,
+            name: ep.name || `Episode ${i + 1}`,
+            still_path: ep.still_path || null,
+          }));
+      }
+
+      const tmdbSeasonToFetch =
+        isAnime && anilistSeasons?.length > 0 && tmdbSeasons.length <= 1
+          ? 1
+          : uiSeason;
+      try {
+        const data = await tmdbFetch(
+          `/tv/${item.id}/season/${tmdbSeasonToFetch}`,
+          apiKey,
+        );
+        let eps = data?.episodes || [];
+        if (useAnilistSeasons && tmdbSeasons.length <= 1) {
+          let offset = 0;
+          for (const s of anilistSeasons) {
+            if (s.seasonNum < uiSeason) offset += s.episodes || 0;
+          }
+          const count =
+            anilistSeasons.find((s) => s.seasonNum === uiSeason)?.episodes ||
+            eps.length;
+          eps = eps.slice(offset, offset + count).map((ep, i) => ({
+            ...ep,
+            episode_number: i + 1,
+          }));
+        }
+        return eps.map((ep) => ({
+          uiEpisode: ep.episode_number,
+          name: ep.name || `Episode ${ep.episode_number}`,
+          still_path: ep.still_path || null,
+        }));
+      } catch {
+        return [];
+      }
+    },
+    [
+      episodeGroupData,
+      item.id,
+      apiKey,
+      isAnime,
+      anilistSeasons,
+      tmdbSeasons,
+      useAnilistSeasons,
+    ],
+  );
+
   // Prefer AniList metadata for anime when available
   const displaySeasonCount = useMemo(
     () => (anilistLoading ? null : seasons.length || d.number_of_seasons || 0),
@@ -2141,6 +2202,7 @@ export default function TVPage({
                     <LocalVideoPlayer
                       filePath={mediaPlayback.localPath}
                       sourceUrl={mediaPlayback.localPlayerUrl}
+                      prepareMode={mediaPlayback.localPrepareMode}
                       startTime={
                         storage.get("dlTime_" + tvPlaybackProgressKey) || 0
                       }
@@ -2716,6 +2778,8 @@ export default function TVPage({
           posterPath={d.poster_path}
           seasons={seasons}
           allEpisodes={allSeriesEpisodes}
+          downloadsByEpisodeKey={downloadsByEpisodeKey}
+          loadSeasonEpisodes={loadSeasonEpisodesForDownload}
           downloaderFolder={downloaderFolder}
           onComplete={onGoToDownloads}
           onDownloadStarted={onDownloadStarted}

@@ -16,15 +16,26 @@ import {
   STORAGE_KEYS,
   isElectron,
   LAST_VERSION_KEY,
+  clearAppCaches,
 } from "./utils/storage";
-import { applyAccentColor } from "./utils/appearance";
+import {
+  getStoredMoviesPath,
+  getStoredYoutubePath,
+  resolveLibraryPaths,
+  markSetupWizardComplete,
+  isLibrarySetupSatisfied,
+} from "./utils/libraryPaths";
+import {
+  applyAccentColor,
+  applyTheme,
+  resolveThemeId,
+} from "./utils/appearance";
 import { collectBackupData } from "./utils/backup";
 import { tmdbFetch, setApiErrorHandlers } from "./utils/api";
-import { clearAppCaches } from "./utils/storage";
 
 import Sidebar from "./components/Sidebar";
 import SearchModal from "./components/SearchModal";
-import SetupScreen from "./components/SetupScreen";
+import SetupWizard from "./components/SetupWizard";
 import CloseConfirmModal from "./components/CloseConfirmModal";
 import UpdateModal from "./components/UpdateModal";
 import { StreamCaptureProvider } from "./context/StreamCaptureContext";
@@ -36,6 +47,7 @@ const TVPage = lazy(() => import("./pages/TVPage"));
 const LibraryPage = lazy(() => import("./pages/LibraryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const DownloadsPage = lazy(() => import("./pages/DownloadsPage"));
+const YouTubePage = lazy(() => import("./pages/YouTubePage"));
 import { checkForUpdates } from "./utils/updates";
 
 export default function App() {
@@ -43,11 +55,14 @@ export default function App() {
   const [apiKey, setApiKey] = useState(null);
   const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
   const [skipped, setSkipped] = useState(false);
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false);
+  const [setupWizardStep, setSetupWizardStep] = useState("tmdb");
   const [apiKeyStatus, setApiKeyStatus] = useState("checking"); // 'checking' | 'ok' | 'invalid_token' | 'unreachable'
   const [page, setPage] = useState(() => storage.get("startPage") || "home");
   const [selected, setSelected] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
   const [dlSearchOpen, setDlSearchOpen] = useState(false);
+  const [ytSearchOpen, setYtSearchOpen] = useState(false);
   const [librarySort, setLibrarySort] = useState(
     () => storage.get(STORAGE_KEYS.LIBRARY_SORT) || "manual",
   );
@@ -66,6 +81,7 @@ export default function App() {
   const [history, setHistory] = useState(() => storage.get("history") || []);
   const [watched, setWatched] = useState(() => storage.get("watched") || {});
   const [toast, setToast] = useState(null);
+  const [toastVariant, setToastVariant] = useState(null);
   const [updateBanner, setUpdateBanner] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   // null | "checking" | { entries: object[] } | "none"
@@ -302,7 +318,15 @@ export default function App() {
   const [highlightDownload, setHighlightDownload] = useState(null);
   const [closeConfirm, setCloseConfirm] = useState(null); // { count }
 
-  // ── Load API key from secure storage on startup ──
+  const [libraryPaths, setLibraryPaths] = useState({
+    movies: "",
+    youtube: "",
+    setupDone: false,
+  });
+  const [libraryPathsLoaded, setLibraryPathsLoaded] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+
+  // ── Load API key + library paths from secure storage on startup ──
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -316,8 +340,21 @@ export default function App() {
           val = fromStorage;
         }
       }
+
+      const paths = await resolveLibraryPaths();
+
       if (!mounted) return;
       setApiKey(val || null);
+      setLibraryPaths(paths);
+      if (isLibrarySetupSatisfied(paths)) {
+        if (paths.movies && paths.youtube && !paths.setupDone) {
+          await markSetupWizardComplete();
+        }
+        setSetupComplete(true);
+      } else {
+        setSetupComplete(false);
+      }
+      setLibraryPathsLoaded(true);
       setApiKeyLoaded(true);
     })();
     return () => {
@@ -553,7 +590,11 @@ export default function App() {
       window.removeEventListener("streamstein:tmdb-lang-changed", handler);
   }, [fetchTrending]);
   useEffect(() => {
-    // Accent colour
+    // App theme & accent colour
+    const storedTheme = storage.get(STORAGE_KEYS.APP_THEME) || "midnight";
+    const theme = resolveThemeId(storedTheme);
+    if (theme !== storedTheme) storage.set(STORAGE_KEYS.APP_THEME, theme);
+    applyTheme(theme);
     const accent = storage.get(STORAGE_KEYS.ACCENT_COLOR) || "red";
     applyAccentColor(accent);
     // Font size
@@ -628,6 +669,9 @@ export default function App() {
         if (pageRef.current === "downloads") {
           e.preventDefault();
           setDlSearchOpen(true);
+        } else if (pageRef.current === "youtube") {
+          e.preventDefault();
+          setYtSearchOpen(true);
         }
       }
       if (e.key === "Escape") {
@@ -657,10 +701,14 @@ export default function App() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const toastTimerRef = useRef(null);
-  const showToast = useCallback((msg) => {
+  const showToast = useCallback((msg, options = {}) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(msg);
-    toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+    setToastVariant(options.variant || null);
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      setToastVariant(null);
+    }, 2500);
   }, []);
 
   const getMediaType = useCallback(
@@ -874,9 +922,81 @@ export default function App() {
     [navigate],
   );
 
-  if (!apiKeyLoaded) return null; // wait for secure storage to resolve
-  if (!apiKey && !skipped)
-    return <SetupScreen onSave={saveApiKey} onSkip={() => setSkipped(true)} />;
+  const refreshLibraryPaths = useCallback(async () => {
+    const paths = await resolveLibraryPaths();
+    setLibraryPaths(paths);
+    return paths;
+  }, []);
+
+  useEffect(() => {
+    const onPathsChanged = () => {
+      refreshLibraryPaths();
+    };
+    window.addEventListener(
+      "streamstein-library-paths-changed",
+      onPathsChanged,
+    );
+    return () => {
+      window.removeEventListener(
+        "streamstein-library-paths-changed",
+        onPathsChanged,
+      );
+    };
+  }, [refreshLibraryPaths]);
+
+  const runSetupWizard = useCallback(
+    async (step = "tmdb") => {
+      await refreshLibraryPaths();
+      setSetupWizardStep(step);
+      setSetupWizardOpen(true);
+    },
+    [refreshLibraryPaths],
+  );
+
+  const finishSetupWizard = useCallback(async () => {
+    const paths = await markSetupWizardComplete();
+    setLibraryPaths(paths);
+    setSetupWizardOpen(false);
+    setSetupComplete(true);
+  }, []);
+
+  const libraryReady = isLibrarySetupSatisfied(libraryPaths);
+
+  const needsSetupWizard =
+    apiKeyLoaded &&
+    libraryPathsLoaded &&
+    (setupWizardOpen ||
+      (!setupComplete &&
+        !libraryReady &&
+        ((!apiKey && !skipped) || isElectron)));
+
+  if (!apiKeyLoaded || !libraryPathsLoaded) return null;
+
+  if (needsSetupWizard) {
+    const wizardStep =
+      setupWizardOpen && setupWizardStep
+        ? setupWizardStep
+        : !apiKey && !skipped
+          ? "tmdb"
+          : "folders";
+
+    return (
+      <SetupWizard
+        initialStep={wizardStep}
+        initialToken={apiKey || ""}
+        initialMoviesFolder={
+          libraryPaths.movies || getStoredMoviesPath() || ""
+        }
+        initialYoutubeFolder={
+          libraryPaths.youtube || getStoredYoutubePath() || ""
+        }
+        isRetest={setupWizardOpen}
+        onSaveApiKey={saveApiKey}
+        onSkipTmdb={() => setSkipped(true)}
+        onComplete={finishSetupWizard}
+      />
+    );
+  }
 
   const hasCustomTitlebar = platform === "win32" || platform === "linux";
 
@@ -1023,7 +1143,9 @@ export default function App() {
               <SettingsPage
                 apiKey={apiKey}
                 onChangeApiKey={changeApiKey}
+                onRunSetupWizard={() => runSetupWizard("tmdb")}
                 initialSection={selected?.section}
+                onShowToast={showToast}
               />
             )}
             {page === "downloads" && (
@@ -1048,6 +1170,16 @@ export default function App() {
                   setDownloads((prev) =>
                     prev.map((d) => (d.id === id ? { ...d, ...updates } : d)),
                   )
+                }
+                onDownloadStarted={handleDownloadStarted}
+              />
+            )}
+            {page === "youtube" && (
+              <YouTubePage
+                searchOpen={ytSearchOpen}
+                onSearchClose={() => setYtSearchOpen(false)}
+                onSettings={(section) =>
+                  navigate("settings", { section: section || null })
                 }
               />
             )}
@@ -1123,7 +1255,11 @@ export default function App() {
             onClose={() => setShowUpdateModal(false)}
           />
         )}
-        {toast && <div className="toast">{toast}</div>}
+        {toast && (
+          <div className={`toast${toastVariant === "success" ? " toast-success" : ""}`}>
+            {toast}
+          </div>
+        )}
 
         {/* ── Episode check status pill / result card ── */}
         {episodeCheckStatus && (
