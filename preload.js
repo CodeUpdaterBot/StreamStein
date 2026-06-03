@@ -48,9 +48,12 @@ contextBridge.exposeInMainWorld("electron", {
     ipcRenderer.invoke("get-max-concurrent-downloads"),
   getDownloads: () => ipcRenderer.invoke("get-downloads"),
   deleteDownload: (args) => ipcRenderer.invoke("delete-download", args),
+  retryDownload: (args) => ipcRenderer.invoke("retry-download", args),
   showInFolder: (path) => ipcRenderer.invoke("show-in-folder", path),
   fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   scanDirectory: (path) => ipcRenderer.invoke("scan-directory", path),
+  getSetupFolderStats: (args) =>
+    ipcRenderer.invoke("get-setup-folder-stats", args),
   localMediaGetPlayerUrl: (args) =>
     ipcRenderer.invoke("local-media-get-player-url", args),
   localMediaGetUrl: (filePath, startTime) =>
@@ -60,12 +63,28 @@ contextBridge.exposeInMainWorld("electron", {
     }),
   localMediaFileExists: (filePath) =>
     ipcRenderer.invoke("local-media-file-exists", { filePath }),
+  localMediaRelease: () => ipcRenderer.invoke("local-media-release"),
+  localMediaGetPreparedUrl: (filePath, startTime) =>
+    ipcRenderer.invoke("local-media-get-prepared-url", { filePath, startTime }),
 
   // Misc
   pickFolder: () => ipcRenderer.invoke("pick-folder"),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openPath: (filePath) => ipcRenderer.invoke("open-path", filePath),
   getInstallPath: () => ipcRenderer.invoke("get-install-path"),
+  getBundledTools: () => ipcRenderer.invoke("get-bundled-tools"),
+  getLibraryPaths: () => ipcRenderer.invoke("get-library-paths"),
+  saveLibraryPaths: (paths) =>
+    ipcRenderer.invoke("save-library-paths", paths || {}),
+  notifyLibraryPathsChanged: (paths) =>
+    ipcRenderer.invoke("notify-library-paths-changed", paths || {}),
+  getYtBridgeStatus: () => ipcRenderer.invoke("get-yt-bridge-status"),
+  restartYtBridge: () => ipcRenderer.invoke("restart-yt-bridge"),
+  getYtBridgeStartup: () => ipcRenderer.invoke("get-yt-bridge-startup"),
+  setYtBridgeStartup: (enabled) =>
+    ipcRenderer.invoke("set-yt-bridge-startup", enabled),
+  getDefaultDownloaderFolder: () =>
+    ipcRenderer.invoke("get-default-downloader-folder"),
   openPathAtTime: (filePath, seconds, subtitlePaths) =>
     ipcRenderer.invoke("open-path-at-time", {
       filePath,
@@ -261,4 +280,44 @@ contextBridge.exposeInMainWorld("electron", {
   },
   offScheduledBackupRequested: (h) =>
     ipcRenderer.removeListener("scheduled-backup-requested", h),
+
+  // YouTube library (YouTube Downloader Extension catalog)
+  getYoutubeDefaultFolder: () =>
+    ipcRenderer.invoke("get-youtube-default-folder"),
+  loadYoutubeCatalog: (args) =>
+    ipcRenderer.invoke("load-youtube-catalog", args),
+  scanYoutubeCatalogFromDisk: (args) =>
+    ipcRenderer.invoke("scan-youtube-catalog-from-disk", args),
+  cloneYoutubeCatalogForMetadataTest: (args) =>
+    ipcRenderer.invoke("clone-youtube-catalog-for-metadata-test", args),
+  getYoutubeCatalogVideo: (args) =>
+    ipcRenderer.invoke("get-youtube-catalog-video", args),
+  getYoutubeCatalogRecord: (args) =>
+    ipcRenderer.invoke("get-youtube-catalog-record", args),
+  updateYoutubeCatalogRecord: (args) =>
+    ipcRenderer.invoke("update-youtube-catalog-record", args),
+  youtubeFileExists: (filePath) =>
+    ipcRenderer.invoke("youtube-file-exists", { filePath }),
+  removeYoutubeCatalogEntry: (args) =>
+    ipcRenderer.invoke("remove-youtube-catalog-entry", args),
+  startYoutubeCatalogEnrich: (args) =>
+    ipcRenderer.invoke("start-youtube-catalog-enrich", args),
+  cancelYoutubeCatalogEnrich: () =>
+    ipcRenderer.invoke("cancel-youtube-catalog-enrich"),
+  getYoutubeCatalogEnrichStatus: () =>
+    ipcRenderer.invoke("get-youtube-catalog-enrich-status"),
+  onYoutubeEnrichProgress: (cb) => {
+    const h = (_, update) => cb(update);
+    ipcRenderer.on("youtube-enrich-progress", h);
+    return h;
+  },
+  offYoutubeEnrichProgress: (h) =>
+    ipcRenderer.removeListener("youtube-enrich-progress", h),
+  onYoutubeCatalogUpdated: (cb) => {
+    const h = (_, detail) => cb(detail || {});
+    ipcRenderer.on("youtube-catalog-updated", h);
+    return h;
+  },
+  offYoutubeCatalogUpdated: (h) =>
+    ipcRenderer.removeListener("youtube-catalog-updated", h),
 });

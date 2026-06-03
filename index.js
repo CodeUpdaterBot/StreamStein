@@ -4,7 +4,20 @@
 
 const { app, BrowserWindow, ipcMain, session, webContents, Notification, powerSaveBlocker } =
   require("electron");
+const fs = require("fs");
 const path = require("path");
+
+function resolveAppIcon() {
+  if (process.platform === "linux") {
+    const linuxIcon = path.join(__dirname, "public", "sized", "256x256.png");
+    if (fs.existsSync(linuxIcon)) return linuxIcon;
+  }
+  for (const rel of ["public/icon.png", "dist/icon.png"]) {
+    const candidate = path.join(__dirname, rel);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
 
 // Chromium sometimes emits benign WidgetHost mojo rejections while native media
 // elements/webviews are torn down. Keep real stderr output, filter only this noise.
@@ -80,6 +93,12 @@ const streamResolver = require("./src/ipc/streamResolver");
 const playerSession = require("./src/ipc/playerSession");
 const seriesDownloadIpc = require("./src/ipc/seriesDownload");
 const localMediaIpc = require("./src/ipc/localMedia");
+const youtubeLibraryIpc = require("./src/ipc/youtubeLibrary");
+const youtubeCatalogEnrichIpc = require("./src/ipc/youtubeCatalogEnrich");
+const toolPaths = require("./src/ipc/toolPaths");
+const ytBridge = require("./src/ipc/ytBridge");
+const libraryPathsMain = require("./src/ipc/libraryPathsMain");
+toolPaths.bindElectronApp(app);
 // Local playback uses loopback HTTP (started in app.whenReady)
 localMediaIpc.registerPrivilegedScheme();
 const { resolveAllMangaMedia } = require("./src/ipc/allmanga");
@@ -168,9 +187,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#0a0a0a",
-    icon: process.platform === "linux"
-      ? path.join(__dirname, "public/sized/256x256.png")
-      : undefined,
+    icon: resolveAppIcon(),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     frame: process.platform !== "win32",
     webPreferences: {
@@ -280,6 +297,11 @@ playerIpc.register(getMainWindow, {
 blockStats.init(getMainWindow);
 castIpc.register(getMainWindow);
 localMediaIpc.register();
+youtubeLibraryIpc.register();
+youtubeCatalogEnrichIpc.register(getMainWindow);
+toolPaths.register(ipcMain);
+ytBridge.register(ipcMain);
+libraryPathsMain.register(ipcMain);
 seriesDownloadIpc.register(getMainWindow, {
   cancelQueuedBySeriesBatch: (batchId) =>
     downloadsIpc.cancelQueuedBySeriesBatch(batchId),
@@ -298,6 +320,10 @@ ipcMain.handle("get-block-stats", () => blockStats.getBlockStats());
 // Called by MoviePage / TVPage on component unmount.
 // Destroys the player webview WebContents by tracked ID, then flushes caches and GCs.
 ipcMain.on("player-stopped", () => {
+  try {
+    localMediaIpc.releaseLocalMediaPlayback();
+  } catch {}
+
   // Step 1: Mute + destroy all tracked player WebContents by ID.
   for (const id of playerWcIds) {
     try {
@@ -555,9 +581,25 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+    const tools = toolPaths.publishBundledEnv();
+    _bench(
+      `tools bundled=${tools.bundledBinDir ? "yes" : "no"} ffmpeg=${tools.ffmpeg ? "ok" : "missing"} yt-dlp=${tools.ytDlp ? "ok" : "missing"}`,
+    );
     localMediaIpc.ensureProtocolHandler();
+    if (ytBridge.shouldStartOnLaunch()) {
+      ytBridge.start().then((bridge) => {
+        _bench(
+          `yt-bridge=${bridge.running ? "ok" : "off"}${bridge.managed ? " (managed)" : bridge.running ? " (external)" : ""}`,
+        );
+      });
+    } else {
+      _bench("yt-bridge=skipped (start on launch disabled)");
+    }
     _bench("app ready");
     createWindow();
+  });
+  app.on("before-quit", () => {
+    ytBridge.stop();
   });
   app.on("window-all-closed", () => {
     streamResolver.destroyResolverWindow();

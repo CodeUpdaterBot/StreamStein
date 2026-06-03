@@ -1,6 +1,6 @@
 {
   "name": "streamstein",
-  "version": "2.4.0",
+  "version": "2.4.2",
   "description": "StreamStein Desktop App",
   "author": {
     "name": "Steven Steinbeck",
@@ -13,13 +13,23 @@
     "dev": "vite build --watch",
     "start": "vite build && electron .",
     "dist": "cross-env ELECTRON_DIST=1 vite build && npm run dist:linux && npm run dist:win && npm run dist:mac",
-    "dist:linux": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux deb AppImage pacman --publish never",
-    "dist:deb": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux deb --publish never",
-    "dist:arch": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux pacman --publish never",
-    "dist:appimage": "cross-env ELECTRON_DIST=1 vite build && electron-builder --linux AppImage --publish never",
-    "dist:win": "cross-env ELECTRON_DIST=1 vite build && electron-builder --win --publish never",
-    "dist:mac": "cross-env ELECTRON_DIST=1 vite build && electron-builder --mac --universal --publish never",
-    "test:media-playback": "node --test src/utils/mediaPlayback.test.mjs"
+    "dist:linux": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --linux deb AppImage pacman --publish never",
+    "dist:deb": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --linux deb --publish never",
+    "dist:arch": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --linux pacman --publish never",
+    "dist:appimage": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --linux AppImage --publish never",
+    "dist:win": "cross-env ELECTRON_DIST=1 CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npm run prepare-release && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish never",
+    "dist:win:dir": "cross-env ELECTRON_DIST=1 CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npm run prepare-release && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win dir --publish never",
+    "dist:win:release": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --win --config.win.signAndEditExecutable=true --publish never",
+    "dist:mac": "cross-env ELECTRON_DIST=1 vite build && npm run prepare-release && electron-builder --mac --universal --publish never",
+    "test:media-playback": "node --test src/utils/mediaPlayback.test.mjs",
+    "setup-binaries": "node scripts/setup-binaries.js",
+    "build:vid-dl": "node scripts/build-vid-dl.js",
+    "prepare-release": "node scripts/setup-binaries.js && node scripts/build-vid-dl.js && npm run setup-bridge",
+    "setup:all": "npm run prepare-release",
+    "setup-bridge": "node scripts/setup-bridge.js",
+    "start:bridge": "node scripts/start-yt-bridge.js",
+    "enrich-youtube-catalog": "node scripts/enrich-youtube-catalog.js",
+    "enrich-youtube-catalog:10": "node scripts/enrich-youtube-catalog.js --limit 10"
   },
   "dependencies": {
     "@videojs/react": "^10.0.0-beta.24",
@@ -64,6 +74,7 @@
       "src/ipc/**/*",
       "index.js",
       "preload.js",
+      "popout-preload.js",
       "package.json",
       "!**/*.map",
       "!**/*.md",
@@ -85,6 +96,32 @@
       "!**/node_modules/@esbuild/**",
       "!**/node_modules/@rollup/**"
     ],
+    "extraResources": [
+      {
+        "from": "resources/bin/${platform}-${arch}",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "YoutubeDownloaderExtension",
+        "to": "YoutubeDownloaderExtension",
+        "filter": [
+          "**/*",
+          "!yt-saver-bridge/node_modules/.cache/**",
+          "!yt-saver-bridge/node_modules/**/*.map",
+          "!yt-saver-bridge/node_modules/**/{test,__tests__,tests,powered-test,example,examples,benchmark,benchmarks,demo}/**",
+          "!yt-saver-bridge/node_modules/*/{CHANGELOG.md,README.md,readme.md,changelog.md,CHANGES,LICENCE,LICENSE}",
+          "!yt-saver-bridge/node_modules/**/docs/**",
+          "!yt-saver-bridge/node_modules/.bin/**",
+          "!yt-saver-bridge/node_modules/streamstein/**",
+          "!yt-saver-bridge/node_modules/.ignored/**",
+          "!yt-saver-bridge/package-lock.json",
+          "!ffmpeg/**"
+        ]
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -92,6 +129,7 @@
       "allowElevation": true,
       "createStartMenuShortcut": true,
       "selectPerMachineByDefault": false,
+      "differentialPackage": false,
       "license": "LICENSE",
       "uninstallDisplayName": "Uninstall Streamstein",
       "installerSidebar": "public/installer-sidebar.bmp"

@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
             movie: ["./src/pages/MoviePage"],
             tv: ["./src/pages/TVPage"],
             downloads: ["./src/pages/DownloadsPage"],
+            youtube: ["./src/pages/YouTubePage"],
           },
         },
       },

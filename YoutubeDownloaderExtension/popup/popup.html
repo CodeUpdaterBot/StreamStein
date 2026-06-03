@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="theme-init.js"></script>
+    <title>YouTube Downloader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="app-nav" aria-label="Main navigation">
+        <div class="brand-lockup" title="YouTube Downloader — StreamStein companion">
+          <span class="brand-mark">
+            <img src="icon.png" width="34" height="34" alt="StreamStein" />
+          </span>
+        </div>
+
+        <nav class="nav-tabs" role="tablist" aria-label="Sections">
+          <button
+            type="button"
+            class="tab nav-tab active"
+            data-tab="single"
+            title="Video"
+            aria-label="Video download"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path d="m10 9.5 5 2.5-5 2.5V9.5Z" fill="currentColor" />
+            </svg>
+            <span class="nav-label">Video</span>
+          </button>
+          <button
+            type="button"
+            class="tab nav-tab"
+            data-tab="channel"
+            title="Channel"
+            aria-label="Channel download"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 7h16M4 12h16M4 17h10"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <circle cx="18" cy="17" r="2.5" stroke="currentColor" stroke-width="1.5" />
+            </svg>
+            <span class="nav-label">Channel</span>
+          </button>
+          <button
+            type="button"
+            class="tab nav-tab"
+            data-tab="extra"
+            title="Extra"
+            aria-label="Whisper transcripts"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M7 4h10v12H7V4Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M5 8H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path d="M9 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+            <span class="nav-label">Extra</span>
+          </button>
+          <button
+            type="button"
+            class="tab nav-tab"
+            data-tab="chat"
+            title="Chat"
+            aria-label="AI transcript chat"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="nav-label">Chat</span>
+          </button>
+          <button
+            type="button"
+            class="tab nav-tab nav-tab-settings"
+            data-tab="settings"
+            title="Settings"
+            aria-label="Settings"
+          >
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+              />
+            </svg>
+            <span class="nav-label nav-label-settings">Settings</span>
+          </button>
+        </nav>
+
+        <div class="nav-footer">
+          <button
+            id="theme-toggle"
+            class="icon-button nav-util"
+            type="button"
+            title="Toggle light/dark theme"
+          >
+            <span id="theme-icon" aria-hidden="true">🌙</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="app-body">
+        <header class="app-topbar">
+          <div class="topbar-inner">
+            <div class="topbar-titles">
+              <h1 class="app-title">YouTube Downloader</h1>
+              <p class="app-subtitle">
+                for your 
+                <a
+                  href="https://www.streamstein.com/"
+                  class="streamstein-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >StreamStein</a>
+                library
+              </p>
+            </div>
+            <div
+              id="backend-status"
+              class="backend-status backend-status--checking"
+              role="status"
+              aria-live="polite"
+              title="Checking StreamStein backend…"
+            >
+              <span class="backend-status-dot" id="backend-status-dot" aria-hidden="true"></span>
+              <span class="backend-status-label" id="backend-status-label">Checking</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="app-main-shell is-backend-checking" id="app-main-shell">
+          <div
+            id="backend-ui-skeleton"
+            class="backend-ui-skeleton is-visible"
+            aria-hidden="false"
+          >
+            <div class="skeleton-video-page" aria-hidden="true">
+              <div class="skeleton-block skeleton-kicker"></div>
+              <div class="skeleton-block skeleton-title"></div>
+              <div class="skeleton-block skeleton-helper skeleton-helper--wide"></div>
+              <div class="skeleton-block skeleton-helper skeleton-helper--medium"></div>
+
+              <div class="skeleton-card">
+                <div class="skeleton-block skeleton-field-label"></div>
+                <div class="skeleton-input-row">
+                  <div class="skeleton-block skeleton-input"></div>
+                  <div class="skeleton-block skeleton-btn-secondary"></div>
+                </div>
+                <div class="skeleton-block skeleton-btn-primary"></div>
+              </div>
+
+              <div class="skeleton-block skeleton-status"></div>
+            </div>
+            <p class="backend-skeleton-hint" id="backend-skeleton-hint">
+              Checking StreamStein connection…
+            </p>
+          </div>
+
+          <div
+            id="backend-offline-shield"
+            class="backend-offline-shield"
+            aria-hidden="true"
+            hidden
+          >
+            <div class="backend-offline-shield-card">
+              <span
+                class="backend-status-dot backend-status-dot--large backend-status-dot--offline backend-offline-shield-dot"
+                aria-hidden="true"
+              ></span>
+              <p class="panel-kicker backend-offline-shield-kicker">Backend offline</p>
+              <h3 class="backend-offline-shield-title">Launch StreamStein</h3>
+              <p class="backend-offline-shield-text">
+                The download server runs inside the
+                <a
+                  href="https://www.streamstein.com/"
+                  class="streamstein-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >StreamStein</a>
+                desktop app. Start
+                <a
+                  href="https://www.streamstein.com/"
+                  class="streamstein-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >StreamStein</a>
+                to allow this extension to work — the badge above will turn green when connected.
+              </p>
+              <button
+                id="backend-offline-shield-action"
+                class="primary-button backend-offline-shield-action"
+                type="button"
+              >
+                What do I need to do?
+              </button>
+            </div>
+          </div>
+
+        <main class="tab-content" tabindex="-1">
+          <!-- Single Video Tab -->
+          <section id="tab-single" class="tab-panel active">
+            <header class="panel-head">
+              <p class="panel-kicker">Download</p>
+              <h2 class="panel-title">Single Video</h2>
+              <p class="helper-text">
+                On a YouTube watch page, the URL is filled automatically. Saves into your local library for StreamStein.
+              </p>
+            </header>
+
+            <div class="card">
+              <label class="field">
+                <span class="field-label">YouTube video URL</span>
+                <div class="field-row field-row-input">
+                  <input
+                    id="video-url"
+                    type="text"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    autocomplete="off"
+                  />
+                  <button id="use-current-video" class="secondary-button" type="button">
+                    Use Tab
+                  </button>
+                </div>
+              </label>
+
+              <button id="download-video" class="primary-button full-width" type="button">
+                Download Video
+              </button>
+            </div>
+
+            <div
+              id="single-status"
+              class="status-box"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></div>
+          </section>
+
+          <!-- Channel Tab -->
+          <section id="tab-channel" class="tab-panel">
+            <header class="panel-head">
+              <p class="panel-kicker">Batch</p>
+              <h2 class="panel-title">Channel</h2>
+              <p class="helper-text">
+                Queue the latest videos from a channel. Use library filters to skip items you already have.
+              </p>
+            </header>
+
+            <div class="card">
+              <label class="field">
+                <span class="field-label">Channel videos URL</span>
+                <div class="field-row field-row-input">
+                  <input
+                    id="channel-url"
+                    type="text"
+                    placeholder="https://www.youtube.com/@.../videos"
+                    autocomplete="off"
+                  />
+                  <button id="use-current-channel" class="secondary-button" type="button">
+                    Use Tab
+                  </button>
+                </div>
+              </label>
+
+              <label class="field field-compact">
+                <span class="field-label">Max videos to download</span>
+                <input id="channel-limit" type="number" min="1" max="500" value="20" />
+              </label>
+
+              <button id="download-channel" class="primary-button full-width" type="button">
+                Download Channel Videos
+              </button>
+            </div>
+
+            <div
+              id="channel-status"
+              class="status-box channel-status-host"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></div>
+
+            <div
+              id="channel-selection-editor"
+              class="channel-selection-editor card card-nested"
+              style="display: none"
+            >
+              <p class="section-label">Selection filters</p>
+              <p class="helper-text selection-helper">
+                Fine-tune which videos from the channel list will be queued. Index
+                <strong>1</strong> is the first video in the list as shown on YouTube.
+              </p>
+
+              <div class="field-row field-row-split">
+                <label class="field">
+                  <span class="field-label">Skip first</span>
+                  <input id="channel-skip-first" type="number" min="0" value="0" />
+                </label>
+                <label class="field">
+                  <span class="field-label">Skip last</span>
+                  <input id="channel-skip-last" type="number" min="0" value="0" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span class="field-label">Only these positions / ranges (optional)</span>
+                <input
+                  id="channel-ranges"
+                  type="text"
+                  placeholder="e.g. 2-10, 15-20"
+                  autocomplete="off"
+                />
+              </label>
+
+              <p class="helper-text selection-helper">
+                If ranges are provided, they use 1-based positions and override “Skip first/last”.
+              </p>
+
+              <p class="section-label channel-video-picker-heading">Selected videos</p>
+              <p class="helper-text selection-helper">
+                Review episodes below. Episodes already in your library are unchecked by default.
+              </p>
+              <div class="channel-video-picker-toolbar">
+                <p id="channel-video-picker-meta" class="channel-video-picker-meta helper-text"></p>
+                <div class="channel-video-picker-bulk" aria-label="Bulk selection">
+                  <button
+                    type="button"
+                    id="channel-picker-select-all"
+                    class="channel-video-picker-bulk-link"
+                  >
+                    Select all
+                  </button>
+                  <span class="channel-video-picker-bulk-sep" aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    id="channel-picker-select-none"
+                    class="channel-video-picker-bulk-link"
+                  >
+                    Select none
+                  </button>
+                </div>
+              </div>
+              <div
+                id="channel-video-picker-list"
+                class="channel-video-picker-list"
+                role="list"
+                aria-label="Videos selected for download"
+              ></div>
+            </div>
+
+            <div id="channel-library-tools" class="channel-library-box card">
+              <p class="section-label">Local library</p>
+              <p id="channel-library-summary" class="helper-text library-summary">
+                Local library status unavailable.
+              </p>
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="channel-only-missing" checked disabled />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Auto-select only videos not downloaded yet</span>
+              </label>
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="channel-missing-transcripts" disabled />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Queue transcripts missing from your library</span>
+              </label>
+              <button
+                id="channel-refresh-library"
+                class="secondary-button small-button"
+                type="button"
+              >
+                Refresh library
+              </button>
+            </div>
+          </section>
+
+          <!-- Extra Tab -->
+          <section id="tab-extra" class="tab-panel">
+            <header class="panel-head">
+              <p class="panel-kicker">Transcripts</p>
+              <h2 class="panel-title">Whisper Extra</h2>
+              <p class="helper-text">
+                Generate transcripts with Whisper for local <strong>videos</strong> (.mp4, .mkv, …) and
+                <strong>audio</strong> (.mp3, .m4a, …) that do <strong>not</strong> already have a sidecar
+                <code>.vtt</code> file.
+              </p>
+            </header>
+
+            <div class="card card-inline-status">
+              <div class="field-row extra-backend-row">
+                <span class="helper-text backend-line">
+                  Whisper backend:
+                  <span id="extra-backend-dot" class="status-dot status-dot-unknown"></span>
+                  <span id="extra-backend-summary-text">not checked yet.</span>
+                </span>
+                <button
+                  id="extra-backend-refresh"
+                  class="icon-button small-button"
+                  type="button"
+                  title="Re-check Whisper backend"
+                >
+                  ⟳
+                </button>
+              </div>
+            </div>
+
+            <div class="card extra-single-file-card">
+              <div class="extra-card-head">
+                <p class="section-label">Single file (library)</p>
+                <button
+                  id="extra-refresh-library"
+                  class="icon-button small-button"
+                  type="button"
+                  title="Refresh library"
+                  aria-label="Refresh library"
+                >
+                  ⟳
+                </button>
+              </div>
+              <label class="field extra-single-file-select">
+                <span class="field-label">Select video or audio from library</span>
+                <select id="extra-video-select">
+                  <option value="">Loading…</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="channel-library-box card extra-folder-box">
+              <p class="section-label">Folder batch</p>
+              <p class="helper-text">
+                Scan a folder on disk and generate <code>.vtt</code> transcripts for every video or audio
+                file that is missing one (same engine and model settings below).
+              </p>
+              <label class="field">
+                <span class="field-label">Folder path</span>
+                <div class="extra-folder-path-row">
+                  <input
+                    id="extra-folder-path"
+                    type="text"
+                    placeholder="C:\Users\PC\Downloads\Podcasts"
+                    spellcheck="false"
+                  />
+                  <button
+                    id="extra-folder-browse"
+                    type="button"
+                    class="secondary-button small-button"
+                    title="Open folder picker"
+                  >
+                    Browse…
+                  </button>
+                </div>
+              </label>
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="extra-folder-recursive" checked />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Include subfolders</span>
+              </label>
+              <div class="field-row extra-folder-actions">
+                <button id="extra-folder-scan" class="secondary-button small-button" type="button">
+                  Scan folder
+                </button>
+                <button
+                  id="extra-folder-generate"
+                  class="primary-button small-button"
+                  type="button"
+                  disabled
+                >
+                  Generate missing transcripts
+                </button>
+              </div>
+              <p
+                id="extra-folder-scan-summary"
+                class="helper-text extra-folder-summary"
+                aria-live="polite"
+              >
+                Scan a folder to see how many files need transcripts.
+              </p>
+            </div>
+
+            <div class="card extra-transcribe-card">
+              <p class="section-label">Transcription settings</p>
+              <div class="extra-engine-row">
+                <label class="field extra-inline-field">
+                  <span class="field-label">Engine</span>
+                  <select id="extra-engine">
+                    <option value="whisper">Whisper (openai-whisper)</option>
+                    <option value="faster-whisper">Faster Whisper</option>
+                  </select>
+                </label>
+                <label class="field extra-inline-field">
+                  <span class="field-label">Model</span>
+                  <select id="extra-model">
+                    <option value="medium.en">medium.en</option>
+                    <option value="small.en">small.en</option>
+                    <option value="base.en">base.en</option>
+                    <option value="tiny.en">tiny.en</option>
+                    <option value="large-v3">large-v3</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="extra-preview-row">
+                <label class="checkbox-row toggle-row extra-preview-toggle">
+                  <input type="checkbox" id="extra-preview-only" checked />
+                  <span class="toggle-ui" aria-hidden="true"></span>
+                  <span class="field-label">Preview only</span>
+                </label>
+                <label class="field extra-preview-seconds-field" id="extra-preview-seconds-wrap">
+                  <span class="field-label">Duration</span>
+                  <span class="extra-preview-input-wrap">
+                    <input id="extra-preview-seconds" type="number" min="1" max="600" value="15" />
+                    <span class="extra-preview-unit">sec</span>
+                  </span>
+                </label>
+              </div>
+              <p class="helper-text helper-text-tight extra-preview-hint">
+                Preview mode transcribes only the first N seconds. Turn off for a full transcript.
+              </p>
+
+              <button id="extra-generate" class="primary-button full-width" type="button">
+                Generate transcript for selected file
+              </button>
+            </div>
+
+            <div
+              id="extra-status"
+              class="status-box"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></div>
+          </section>
+
+          <!-- Chat Tab -->
+          <section id="tab-chat" class="tab-panel">
+            <header class="panel-head">
+              <p class="panel-kicker">AI Writer</p>
+              <h2 class="panel-title">Chat</h2>
+              <p class="helper-text">
+                Generate a new episode transcript in the style of a creator using your local .vtt library and OpenAI.
+              </p>
+            </header>
+
+            <div class="card card-inline-status">
+              <div class="field-row extra-backend-row">
+                <span class="helper-text backend-line">
+                  Chat backend:
+                  <span id="chat-backend-dot" class="status-dot status-dot-unknown"></span>
+                  <span id="chat-backend-summary-text">not checked yet.</span>
+                </span>
+                <button
+                  id="chat-backend-refresh"
+                  class="icon-button small-button"
+                  type="button"
+                  title="Re-check Chat backend"
+                >
+                  ⟳
+                </button>
+              </div>
+            </div>
+
+            <div class="channel-library-box card chat-creator-card">
+              <label class="field chat-creator-field">
+                <span class="field-label-row">
+                  <span class="field-label">Select creator from library</span>
+                  <button
+                    id="chat-refresh-creators"
+                    class="icon-button small-button"
+                    type="button"
+                    title="Refresh creators from library"
+                    aria-label="Refresh creators"
+                  >
+                    ⟳
+                  </button>
+                </span>
+                <select id="chat-creator-select">
+                  <option value="">Loading…</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="card chat-episode-card">
+              <div class="chat-episode-grid">
+                <label class="field chat-episode-title-field">
+                  <span class="field-label">Episode title (optional)</span>
+                  <input
+                    id="chat-episode-title"
+                    type="text"
+                    placeholder="e.g. Weekly Wrap — 2025-11-23"
+                  />
+                </label>
+                <label class="field chat-episode-narrow">
+                  <span class="field-label">Minutes</span>
+                  <input id="chat-minutes" type="number" min="5" max="180" value="60" />
+                </label>
+
+                <label class="field chat-episode-topics">
+                  <span class="field-label">Topics or themes (comma-separated, optional)</span>
+                  <input
+                    id="chat-topics"
+                    type="text"
+                    placeholder="e.g. AI policy, elections, sports scandal"
+                    autocomplete="off"
+                  />
+                </label>
+
+                <label class="checkbox-row toggle-row chat-episode-news-toggle">
+                  <input type="checkbox" id="chat-autonews" checked />
+                  <span class="toggle-ui" aria-hidden="true"></span>
+                  <span class="field-label">Auto-include current events (GDELT)</span>
+                </label>
+                <label class="field chat-episode-narrow chat-episode-news-days">
+                  <span class="field-label">News window (days)</span>
+                  <input id="chat-news-days" type="number" min="1" max="14" value="7" />
+                </label>
+              </div>
+            </div>
+
+            <div class="channel-library-box card">
+              <p class="section-label">OpenAI</p>
+              <label class="field">
+                <span class="field-label">OpenAI API key</span>
+                <input id="chat-openai-key" type="text" placeholder="sk-..." autocomplete="off" />
+              </label>
+              <div class="field-row">
+                <button id="chat-save-key" class="secondary-button small-button" type="button">
+                  Save key
+                </button>
+              </div>
+
+              <label class="field model-picker-field">
+                <span class="field-label">OpenAI model</span>
+                <input type="hidden" id="chat-model" value="gpt-4.1" />
+                <div
+                  id="chat-model-picker"
+                  class="model-picker"
+                  role="combobox"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                >
+                  <button
+                    type="button"
+                    class="model-picker-trigger"
+                    id="chat-model-trigger"
+                    aria-controls="chat-model-menu"
+                    aria-expanded="false"
+                  >
+                    <span class="model-picker-trigger-main"></span>
+                    <span class="model-picker-chevron" aria-hidden="true">▾</span>
+                  </button>
+                  <div
+                    id="chat-model-menu"
+                    class="model-picker-menu"
+                    role="listbox"
+                    hidden
+                  >
+                    <div class="model-picker-list"></div>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <button id="chat-generate" class="primary-button full-width" type="button">
+              Generate New 60-Minute Transcript
+            </button>
+
+            <div
+              id="chat-status"
+              class="status-box"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></div>
+          </section>
+
+          <!-- Settings Tab -->
+          <section id="tab-settings" class="tab-panel">
+            <header class="panel-head">
+              <p class="panel-kicker">Preferences</p>
+              <h2 class="panel-title">Settings</h2>
+              <p class="helper-text">
+                Configure save location, quality, and download behavior. Files are organized for StreamStein and other local players.
+              </p>
+            </header>
+
+            <div class="card">
+              <p class="section-label">Download folder</p>
+              <label class="field">
+                <span class="field-label">Save location</span>
+                <select id="settings-save-mode">
+                  <option value="default">Downloads/YouTube (default)</option>
+                  <option value="subfolder">Subfolder under Downloads…</option>
+                  <option value="ask">Ask every time (Save As)</option>
+                </select>
+              </label>
+
+              <label id="settings-subfolder-row" class="field" style="display: none">
+                <span class="field-label">Subfolder under Downloads</span>
+                <input
+                  id="settings-subfolder"
+                  type="text"
+                  placeholder="e.g. BackupHD/YouTube"
+                  autocomplete="off"
+                />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Maximum video quality</span>
+                <select id="settings-max-quality">
+                  <option value="best">Best available</option>
+                  <option value="2160">2160p (4K)</option>
+                  <option value="1440">1440p (2K)</option>
+                  <option value="1080">1080p (Full HD)</option>
+                  <option value="720">720p (HD)</option>
+                  <option value="480">480p</option>
+                  <option value="360">360p</option>
+                </select>
+              </label>
+
+              <label class="checkbox-row toggle-row">
+                <input id="settings-download-transcripts" type="checkbox" />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Download transcripts when available</span>
+              </label>
+
+              <label class="field field-compact">
+                <span class="field-label">Delay between channel downloads (seconds)</span>
+                <input id="settings-delay" type="number" min="0" max="600" step="1" value="15" />
+              </label>
+            </div>
+
+            <div class="card">
+              <p class="section-label">Tools</p>
+              <label class="field">
+                <span class="field-label">FFmpeg path (local)</span>
+                <input
+                  id="settings-ffmpeg-path"
+                  type="text"
+                  placeholder="Bundled with StreamStein (leave blank)"
+                  autocomplete="off"
+                />
+              </label>
+              <p class="helper-text helper-text-tight">
+                Leave blank to attempt to automatically find & use.
+              </p>
+
+              <label class="field">
+                <span class="field-label">Whisper executable (optional)</span>
+                <input
+                  id="settings-whisper-command"
+                  type="text"
+                  placeholder="Auto-detect (conda voiceai, etc.)"
+                  autocomplete="off"
+                />
+              </label>
+              <p class="helper-text helper-text-tight tools-whisper-help">
+                Whisper is not bundled (it requires a local Python install with GPU libraries).
+                Leave blank to auto-detect common installs such as a conda
+                <code>voiceai</code> environment.<br /><br />
+                To set manually, enter the full command, e.g.<br />
+                <code class="code-path">C:\ProgramData\Anaconda3\envs\voiceai\python.exe -m whisper</code>
+                (conda example)<br />
+                <code class="code-path">...\Programs\Python\Python311\python.exe -m whisper</code>
+                (standard Python install)<br /><br />
+                Alternatively, you can use a standalone executable like faster-whisper or similar.
+                For example:<br />
+                <code class="code-path">C:\tools\faster-whisper.exe</code> (standalone executable)
+              </p>
+            </div>
+
+            <div class="card">
+              <p class="section-label">yt-dlp</p>
+              <label class="field">
+                <span class="field-label">Cookies from current browser (optional)</span>
+                <input
+                  id="settings-ytdlp-cookies-browser"
+                  type="text"
+                  placeholder="e.g. chrome or chrome:Profile 1"
+                  autocomplete="off"
+                />
+              </label>
+              <p class="helper-text helper-text-tight">
+                Uses <code>--cookies-from-browser</code>. Example: <code>chrome</code> or
+                <code>chrome:Profile 1</code>.
+              </p>
+
+              <label class="field">
+                <span class="field-label">Cookies file (optional)</span>
+                <input
+                  id="settings-ytdlp-cookies-file"
+                  type="text"
+                  placeholder="C:\path\to\youtube-cookies.txt"
+                  autocomplete="off"
+                />
+              </label>
+              <p class="helper-text helper-text-tight">
+                Netscape-format cookies file with <code>--cookies</code>. Overrides browser cookies when set.
+                StreamStein auto-uses <code>youtube-cookies.txt</code> next to the extension when present.
+              </p>
+
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="settings-ytdlp-warmup-enabled" />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">
+                  Warm up each video in a Chrome tab before channel downloads
+                </span>
+              </label>
+              <div class="field-row field-row-split">
+                <label class="field extra-inline-field">
+                  <span class="field-label">Warm-up delay (ms)</span>
+                  <input
+                    id="settings-ytdlp-warmup-delay-ms"
+                    type="number"
+                    min="0"
+                    max="15000"
+                    step="100"
+                    value="2500"
+                  />
+                </label>
+                <label class="field extra-inline-field">
+                  <span class="field-label">Warm-up cooldown (ms)</span>
+                  <input
+                    id="settings-ytdlp-warmup-cooldown-ms"
+                    type="number"
+                    min="0"
+                    max="600000"
+                    step="1000"
+                    value="15000"
+                  />
+                </label>
+              </div>
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="settings-ytdlp-warmup-close-tab" checked />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Close the warm-up tab automatically</span>
+              </label>
+              <p class="helper-text helper-text-tight">
+                Channel batches briefly open each video page to refresh session cookies, then start the download.
+              </p>
+            </div>
+
+            <div class="field-row settings-actions">
+              <button id="settings-save" class="primary-button" type="button">Save Settings</button>
+              <button id="settings-reset" class="secondary-button" type="button">Reset</button>
+            </div>
+
+            <div
+              id="settings-status"
+              class="status-box"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></div>
+          </section>
+        </main>
+
+        <footer class="app-footer">
+          <div
+            id="download-progress-container"
+            class="download-progress"
+            aria-hidden="true"
+          >
+            <div class="download-progress-bar-outer">
+              <div class="download-progress-bar-inner" id="download-progress-bar"></div>
+            </div>
+          </div>
+        </footer>
+        </div>
+      </div>
+    </div>
+
+    <!-- Path confirmation modal -->
+    <div id="path-confirm-overlay" class="modal-overlay" style="display: none">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="path-confirm-title">
+        <p class="panel-kicker">Save location</p>
+        <h3 id="path-confirm-title" class="modal-title">Confirm folder</h3>
+        <p id="path-confirm-text" class="modal-text">
+          This video appears to be from a different channel than your configured folder.
+        </p>
+        <div class="modal-buttons">
+          <button id="path-confirm-keep" class="secondary-button" type="button">
+            Save in configured folder
+          </button>
+          <button id="path-confirm-default" class="primary-button" type="button">
+            Save in channel folder
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- StreamStein backend connected modal -->
+    <div id="backend-connected-overlay" class="modal-overlay" style="display: none">
+      <div
+        class="modal backend-status-modal backend-connected-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="backend-connected-title"
+      >
+        <div class="backend-status-modal-badge backend-status-modal-badge--connected" aria-hidden="true">
+          <span class="backend-status-dot backend-status-dot--large backend-status-dot--connected"></span>
+        </div>
+        <p class="panel-kicker">Backend connected</p>
+        <h3 id="backend-connected-title" class="modal-title">StreamStein is running</h3>
+        <p class="modal-text backend-status-modal-lead">
+          This extension is linked to the local download server bundled with
+          <strong>StreamStein</strong>. You can download videos, channels, and transcripts from here.
+        </p>
+
+        <dl class="backend-info-card">
+          <div class="backend-info-row">
+            <dt>Server</dt>
+            <dd><code id="backend-connected-endpoint">http://127.0.0.1:8789</code></dd>
+          </div>
+          <div class="backend-info-row">
+            <dt>Managed by</dt>
+            <dd>StreamStein desktop app</dd>
+          </div>
+          <div class="backend-info-row">
+            <dt>Library folder</dt>
+            <dd><code id="backend-connected-library-path">Downloads/YouTube</code></dd>
+          </div>
+        </dl>
+
+        <ul class="backend-capability-list">
+          <li>Video and channel downloads via yt-dlp</li>
+          <li>Transcripts and library catalog sync</li>
+          <li>New items appear in StreamStein’s YouTube tab automatically after each download</li>
+        </ul>
+
+        <p class="helper-text backend-status-modal-footnote">
+          Keep StreamStein open while downloading. Closing the app stops the backend and the status dot will turn red.
+        </p>
+
+        <div class="modal-buttons modal-buttons-single">
+          <button id="backend-connected-ok" class="primary-button full-width" type="button">
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- StreamStein backend offline modal -->
+    <div id="backend-offline-overlay" class="modal-overlay" style="display: none">
+      <div
+        class="modal backend-status-modal backend-offline-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="backend-offline-title"
+      >
+        <div class="backend-status-modal-badge backend-status-modal-badge--offline" aria-hidden="true">
+          <span class="backend-status-dot backend-status-dot--large backend-status-dot--offline"></span>
+        </div>
+        <p class="panel-kicker">Backend offline</p>
+        <h3 id="backend-offline-title" class="modal-title">Start StreamStein</h3>
+        <p id="backend-offline-text" class="modal-text">
+          The YouTube download server runs inside the
+          <a
+            href="https://www.streamstein.com/"
+            class="streamstein-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >StreamStein</a>
+          desktop app. Launch
+          <a
+            href="https://www.streamstein.com/"
+            class="streamstein-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >StreamStein</a>
+          first, then try again — the status dot in the header will turn green when connected.
+        </p>
+        <div class="modal-buttons modal-buttons-single">
+          <button id="backend-offline-ok" class="primary-button full-width" type="button">
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

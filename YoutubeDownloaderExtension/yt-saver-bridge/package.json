@@ -1,0 +1,18 @@
+{
+  "name": "yt-saver-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local bridge server for YouTube Downloader extension (streams media via youtubei.js/googlevideo).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "googlevideo": "^4.0.4",
+    "node-localstorage": "^3.0.5",
+    "openai": "^4.59.0",
+    "youtubei.js": "^16.0.1"
+  }
+}
