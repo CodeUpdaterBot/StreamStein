@@ -64,6 +64,11 @@ export const HomeIcon = () => (
     <polyline points="9 22 9 12 15 12 15 22" />
   </svg>
 );
+export const YouTubeIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+  </svg>
+);
 export const StarIcon = ({ size = 16 }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" width={size} height={size}>
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -394,5 +399,43 @@ export const PopOutIcon = ({ size = 16 }) => (
     <rect x="2" y="7" width="13" height="10" rx="2" />
     <path d="M15 3h6v6" />
     <path d="M10 14L21 3" />
+  </svg>
+);
+
+/** Lucide-style pencil (edit catalog entry). */
+export const PencilIcon = ({ size = 16 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    <path d="m15 5 4 4" />
+  </svg>
+);
+
+/** Lucide-style refresh (for metadata sync). */
+export const RefreshCwIcon = ({ size = 16 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+    <path d="M8 16H3v5" />
   </svg>
 );

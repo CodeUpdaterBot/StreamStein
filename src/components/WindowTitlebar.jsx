@@ -42,23 +42,21 @@ export default function WindowTitlebar() {
         right: 0,
         height: 32,
         zIndex: 10000,
-        background: "var(--bg)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        background: "var(--titlebar-bg, var(--bg))",
+        borderBottom: "1px solid var(--titlebar-border, rgba(255,255,255,0.06))",
         display: "flex",
         alignItems: "center",
         userSelect: "none",
-        // WebkitAppRegion makes the bar draggable in Electron
         WebkitAppRegion: "drag",
       }}
     >
-      {/* App name / logo */}
       <div
         style={{
-          paddingLeft: 12, // sit over the sidebar
+          paddingLeft: 12,
           fontSize: 14,
           fontWeight: 700,
           letterSpacing: 2,
-          color: "rgba(255,255,255,0.35)",
+          color: "var(--titlebar-fg, rgba(255,255,255,0.35))",
           fontFamily: "var(--font-display)",
           flexGrow: 1,
           overflow: "hidden",
@@ -69,7 +67,6 @@ export default function WindowTitlebar() {
         STREAMSTEIN
       </div>
 
-      {/* Window control buttons, NOT draggable */}
       <div
         style={{
           display: "flex",
@@ -77,10 +74,9 @@ export default function WindowTitlebar() {
           WebkitAppRegion: "no-drag",
         }}
       >
-        {/* Minimize */}
         <TitlebarBtn
           onClick={minimize}
-          hoverBg="rgba(255,255,255,0.08)"
+          hoverBg="var(--titlebar-btn-hover, rgba(255,255,255,0.08))"
           title="Minimize"
         >
           <svg width="10" height="1" viewBox="0 0 10 1" fill="none">
@@ -88,14 +84,12 @@ export default function WindowTitlebar() {
           </svg>
         </TitlebarBtn>
 
-        {/* Maximize / Restore */}
         <TitlebarBtn
           onClick={toggleMaximize}
-          hoverBg="rgba(255,255,255,0.08)"
+          hoverBg="var(--titlebar-btn-hover, rgba(255,255,255,0.08))"
           title={maximized ? "Restore" : "Maximize"}
         >
           {maximized ? (
-            // Restore icon (two overlapping squares)
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <rect
                 x="2"
@@ -115,12 +109,10 @@ export default function WindowTitlebar() {
                 rx="0.5"
                 stroke="currentColor"
                 strokeWidth="1"
-                fill="none"
-                style={{ fill: "var(--bg)" }}
+                fill="var(--titlebar-bg, var(--bg))"
               />
             </svg>
           ) : (
-            // Maximize icon (square)
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <rect
                 x="0.5"
@@ -136,10 +128,9 @@ export default function WindowTitlebar() {
           )}
         </TitlebarBtn>
 
-        {/* Close */}
         <TitlebarBtn
           onClick={close}
-          hoverBg="rgba(229,9,20,0.85)"
+          hoverBg="var(--red)"
           title="Close"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -168,6 +159,7 @@ export default function WindowTitlebar() {
 
 function TitlebarBtn({ children, onClick, hoverBg, title }) {
   const [hovered, setHovered] = useState(false);
+  const isCloseHover = hoverBg === "var(--red)";
   return (
     <button
       onClick={onClick}
@@ -180,7 +172,11 @@ function TitlebarBtn({ children, onClick, hoverBg, title }) {
         background: hovered ? hoverBg : "transparent",
         border: "none",
         cursor: "default",
-        color: hovered ? "#fff" : "rgba(255,255,255,0.55)",
+        color: hovered && isCloseHover
+          ? "#fff"
+          : hovered
+            ? "#fff"
+            : "var(--titlebar-btn, rgba(255,255,255,0.55))",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

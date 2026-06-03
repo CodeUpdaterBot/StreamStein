@@ -86,12 +86,21 @@ function ExternalLink({ href, className, children }) {
   );
 }
 
-export default function SetupScreen({ onSave, onSkip }) {
-  const [key, setKey] = useState("");
+export default function SetupScreen({
+  onSave,
+  onSkip,
+  initialToken = "",
+  stepLabel,
+}) {
+  const [key, setKey] = useState(initialToken);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null); // { title, body }
   const inputRef = useRef(null);
   const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    setKey(initialToken || "");
+  }, [initialToken]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -116,12 +125,14 @@ export default function SetupScreen({ onSave, onSkip }) {
   };
 
   return (
-    <div className="apikey-modal">
-      <div className="apikey-box">
+    <div className="setup-shell">
+      <div className="setup-shell-center">
+        <div className="apikey-box setup-card">
         <div className="apikey-logo">
           <StreamsteinLogo />
         </div>
         <div className="apikey-title">STREAMSTEIN</div>
+        {stepLabel && <div className="setup-step-label">{stepLabel}</div>}
         <p className="apikey-sub">
           Enter your <strong>free</strong> TMDB{" "}
           <strong>Read Access Token</strong> to get started.
@@ -211,6 +222,7 @@ export default function SetupScreen({ onSave, onSkip }) {
             Skip for now
           </button>
         )}
+        </div>
       </div>
     </div>
   );

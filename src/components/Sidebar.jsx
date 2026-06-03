@@ -1,8 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { imgUrl } from "../utils/api";
+import {
+  loadSidebarLayout,
+  partitionSidebarNav,
+  SIDEBAR_LAYOUT_CHANGED,
+  SIDEBAR_ITEM_LABELS,
+} from "../utils/sidebarLayout";
 import {
   StreamsteinLogo,
   HomeIcon,
+  YouTubeIcon,
   SearchIcon,
   HistoryIcon,
   FilmIcon,
@@ -12,6 +19,44 @@ import {
   BackIcon,
   HelpIcon,
 } from "./Icons";
+
+const NAV_RENDERERS = {
+  home: {
+    icon: <HomeIcon />,
+    label: SIDEBAR_ITEM_LABELS.home,
+    page: "home",
+  },
+  history: {
+    icon: <HistoryIcon />,
+    label: SIDEBAR_ITEM_LABELS.history,
+    page: "history",
+  },
+  downloads: {
+    icon: <DownloadsQueueIcon />,
+    label: SIDEBAR_ITEM_LABELS.downloads,
+    page: "downloads",
+  },
+  youtube: {
+    icon: <YouTubeIcon />,
+    label: SIDEBAR_ITEM_LABELS.youtube,
+    page: "youtube",
+  },
+  help: {
+    icon: <HelpIcon />,
+    label: `${SIDEBAR_ITEM_LABELS.help} (?)`,
+    action: "help",
+  },
+  settings: {
+    icon: <SettingsIcon />,
+    label: SIDEBAR_ITEM_LABELS.settings,
+    page: "settings",
+  },
+  quit: {
+    icon: <QuitIcon />,
+    label: SIDEBAR_ITEM_LABELS.quit,
+    action: "quit",
+  },
+};
 
 export default function Sidebar({
   page,
@@ -25,12 +70,24 @@ export default function Sidebar({
   onBack,
   onShowShortcuts,
 }) {
+  const [layout, setLayout] = useState(() => loadSidebarLayout());
   const [dragOver, setDragOver] = useState(null);
   const dragItem = useRef(null);
   const dragNode = useRef(null);
 
-  const [tooltip, setTooltip] = useState(null); // { title, y }
-  const [contextMenu, setContextMenu] = useState(null); // { item, x, y }
+  const [tooltip, setTooltip] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+
+  useEffect(() => {
+    const refresh = () => setLayout(loadSidebarLayout());
+    window.addEventListener(SIDEBAR_LAYOUT_CHANGED, refresh);
+    return () => window.removeEventListener(SIDEBAR_LAYOUT_CHANGED, refresh);
+  }, []);
+
+  const { main: mainNav, bottom: bottomNav } = useMemo(
+    () => partitionSidebarNav(layout.order, layout.visible),
+    [layout],
+  );
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -98,6 +155,50 @@ export default function Sidebar({
     setTooltip(null);
   };
 
+  const renderNavItem = (id) => {
+    const config = NAV_RENDERERS[id];
+    if (!config) return null;
+
+    if (config.action === "help") {
+      return (
+        <SideBtn
+          key={id}
+          onClick={onShowShortcuts}
+          icon={config.icon}
+          label={config.label}
+        />
+      );
+    }
+
+    if (config.action === "quit") {
+      return (
+        <button
+          key={id}
+          className="sidebar-btn"
+          onClick={() => window.electron?.quitApp?.()}
+          title={config.label}
+          style={{ color: "#e53e3e", marginTop: id === bottomNav[0] ? 4 : 0 }}
+        >
+          {config.icon}
+          <span className="tooltip">{config.label}</span>
+        </button>
+      );
+    }
+
+    return (
+      <SideBtn
+        key={id}
+        active={page === config.page}
+        onClick={() => onNavigate(config.page)}
+        icon={config.icon}
+        label={config.label}
+        badge={
+          id === "downloads" && activeDownloads > 0 ? activeDownloads : null
+        }
+      />
+    );
+  };
+
   return (
     <div className="sidebar">
       <div
@@ -113,25 +214,8 @@ export default function Sidebar({
       )}
 
       <SideBtn onClick={onSearch} icon={<SearchIcon />} label="Search  (⌘F)" />
-      <SideBtn
-        active={page === "home"}
-        onClick={() => onNavigate("home")}
-        icon={<HomeIcon />}
-        label="Home"
-      />
-      <SideBtn
-        active={page === "history"}
-        onClick={() => onNavigate("history")}
-        icon={<HistoryIcon />}
-        label="Library & History"
-      />
-      <SideBtn
-        active={page === "downloads"}
-        onClick={() => onNavigate("downloads")}
-        icon={<DownloadsQueueIcon />}
-        label="Downloads"
-        badge={activeDownloads > 0 ? activeDownloads : null}
-      />
+
+      {mainNav.map(renderNavItem)}
 
       <div className="sidebar-sep" />
 
@@ -212,28 +296,9 @@ export default function Sidebar({
         </div>
       )}
 
-      <div className="sidebar-bottom">
-        <SideBtn
-          onClick={onShowShortcuts}
-          icon={<HelpIcon />}
-          label="Help & Shortcuts (?)"
-        />
-        <SideBtn
-          active={page === "settings"}
-          onClick={() => onNavigate("settings")}
-          icon={<SettingsIcon />}
-          label="Settings"
-        />
-        <button
-          className="sidebar-btn"
-          onClick={() => window.electron?.quitApp?.()}
-          title="Quit App"
-          style={{ color: "#e53e3e", marginTop: 4 }}
-        >
-          <QuitIcon />
-          <span className="tooltip">Quit App</span>
-        </button>
-      </div>
+      {bottomNav.length > 0 && (
+        <div className="sidebar-bottom">{bottomNav.map(renderNavItem)}</div>
+      )}
     </div>
   );
 }

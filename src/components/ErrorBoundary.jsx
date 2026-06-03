@@ -25,7 +25,7 @@ export default class ErrorBoundary extends Component {
         style={{
           position: "fixed",
           inset: 0,
-          background: "#0a0a0a",
+          background: "var(--bg, #0a0a0a)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",

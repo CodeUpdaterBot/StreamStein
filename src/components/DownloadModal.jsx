@@ -439,6 +439,19 @@ export default function DownloadModal({
   const isWindows = ua.includes("win");
 
   useEffect(() => {
+    if (!isElectron || downloaderFolder) return;
+    let mounted = true;
+    window.electron.getDefaultDownloaderFolder?.().then((result) => {
+      if (!mounted || !result?.ok || !result.folder) return;
+      setDownloaderFolder(result.folder);
+      storage.set("downloaderFolder", result.folder);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [downloaderFolder, setDownloaderFolder]);
+
+  useEffect(() => {
     if (!downloaderFolder || !isElectron) return;
     let mounted = true;
     setChecking(true);

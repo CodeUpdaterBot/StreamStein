@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { CloseIcon, DownloadIcon } from "./Icons";
+import { CloseIcon, DownloadIcon, ChevronRightIcon } from "./Icons";
 import { storage, STORAGE_KEYS } from "../utils/storage";
+import { imgUrl } from "../utils/api";
 
 const DEFAULT_SOURCES = ["videasy", "vidsrc"];
 const SOURCE_ORDER = ["videasy", "vidsrc", "2embed"];
@@ -8,6 +9,90 @@ const SOURCE_ORDER = ["videasy", "vidsrc", "2embed"];
 function sortSeriesSources(list) {
   return [...list].sort(
     (a, b) => SOURCE_ORDER.indexOf(a) - SOURCE_ORDER.indexOf(b),
+  );
+}
+
+function epKey(ep) {
+  const s = ep.uiSeason ?? ep.season;
+  const e = ep.uiEpisode ?? ep.episode;
+  return `${s}:${e}`;
+}
+
+function dlLookupKey(uiSeason, uiEpisode) {
+  return `s${uiSeason}e${uiEpisode}`;
+}
+
+function episodeStatusTag(download) {
+  if (!download) return null;
+  switch (download.status) {
+    case "completed":
+    case "local":
+      return { label: "In library", variant: "library" };
+    case "downloading":
+      return { label: "Downloading", variant: "downloading" };
+    case "queued":
+    case "resolving":
+      return { label: "Queued", variant: "queued" };
+    default:
+      return null;
+  }
+}
+
+function SeriesDownloadEpisodeRow({
+  ep,
+  uiSeason,
+  uiEpisode,
+  selected,
+  busy,
+  posterPath,
+  meta,
+  download,
+  onToggle,
+}) {
+  const tag = episodeStatusTag(download);
+  const title =
+    meta?.name || `Episode ${uiEpisode}`;
+  const thumb = meta?.still_path
+    ? imgUrl(meta.still_path, "w300")
+    : posterPath
+      ? imgUrl(posterPath, "w300")
+      : null;
+
+  return (
+    <label
+      className={`series-download-modal__ep-row ${selected ? "series-download-modal__ep-row--selected" : ""}`}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        disabled={busy}
+      />
+      <div className="series-download-modal__ep-thumb">
+        {thumb ? (
+          <img src={thumb} alt="" loading="lazy" />
+        ) : (
+          <div className="series-download-modal__ep-thumb-fallback">
+            E{uiEpisode}
+          </div>
+        )}
+      </div>
+      <div className="series-download-modal__ep-body">
+        <div className="series-download-modal__ep-num">
+          S{String(uiSeason).padStart(2, "0")} · E{uiEpisode}
+        </div>
+        <div className="series-download-modal__ep-name">{title}</div>
+        {tag && (
+          <div className="series-download-modal__ep-tags">
+            <span
+              className={`series-download-modal__tag series-download-modal__tag--${tag.variant}`}
+            >
+              {tag.label}
+            </span>
+          </div>
+        )}
+      </div>
+    </label>
   );
 }
 
@@ -24,10 +109,11 @@ export default function SeriesDownloadModal({
   posterPath,
   seasons = [],
   allEpisodes = [],
+  downloadsByEpisodeKey,
+  loadSeasonEpisodes,
   downloaderFolder,
   onComplete,
   onDownloadStarted,
-  /** Must use TV page player — same steps as manual download */
   runSeriesDownload,
 }) {
   const [downloadPath, setDownloadPath] = useState(
@@ -35,7 +121,10 @@ export default function SeriesDownloadModal({
   );
   const [downloader, setDownloader] = useState(null);
   const [checking, setChecking] = useState(false);
-  const [selectedSeasons, setSelectedSeasons] = useState(() => new Set());
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [expandedSeasons, setExpandedSeasons] = useState(() => new Set());
+  const [seasonMetaCache, setSeasonMetaCache] = useState({});
+  const [loadingSeasons, setLoadingSeasons] = useState(() => new Set());
   const [skipExisting, setSkipExisting] = useState(
     () => storage.get(STORAGE_KEYS.SERIES_DL_SKIP_EXISTING) !== false,
   );
@@ -48,13 +137,32 @@ export default function SeriesDownloadModal({
   const batchIdRef = useRef(null);
   const abortRef = useRef(null);
 
+  const episodesBySeason = useMemo(() => {
+    const map = new Map();
+    for (const ep of allEpisodes) {
+      const s = ep.uiSeason ?? ep.season;
+      if (!map.has(s)) map.set(s, []);
+      map.get(s).push(ep);
+    }
+    for (const [, list] of map) {
+      list.sort(
+        (a, b) => (a.uiEpisode ?? a.episode) - (b.uiEpisode ?? b.episode),
+      );
+    }
+    return map;
+  }, [allEpisodes]);
+
   useEffect(() => {
     if (!open) return;
     setError(null);
     setProgress(null);
-    const nums = seasons.map((s) => s.season_number);
-    setSelectedSeasons(new Set(nums));
-  }, [open, seasons]);
+    setSeasonMetaCache({});
+    setLoadingSeasons(new Set());
+    const keys = new Set(allEpisodes.map(epKey));
+    setSelectedKeys(keys);
+    const first = seasons[0]?.season_number;
+    setExpandedSeasons(first != null ? new Set([first]) : new Set());
+  }, [open, allEpisodes, seasons]);
 
   useEffect(() => {
     if (!open || !downloaderFolder) return;
@@ -71,21 +179,98 @@ export default function SeriesDownloadModal({
     };
   }, [open, downloaderFolder]);
 
-  const episodes = useMemo(() => {
-    return allEpisodes.filter((ep) =>
-      selectedSeasons.has(ep.uiSeason ?? ep.season),
-    );
-  }, [allEpisodes, selectedSeasons]);
+  useEffect(() => {
+    if (!open || !loadSeasonEpisodes) return;
+
+    for (const uiSeason of expandedSeasons) {
+      if (seasonMetaCache[uiSeason] !== undefined) continue;
+      if (loadingSeasons.has(uiSeason)) continue;
+
+      setLoadingSeasons((prev) => new Set(prev).add(uiSeason));
+      loadSeasonEpisodes(uiSeason)
+        .then((details) => {
+          const byUi = {};
+          for (const row of details || []) {
+            const n = row.uiEpisode ?? row.episode_number;
+            if (n != null) byUi[n] = row;
+          }
+          setSeasonMetaCache((prev) => ({ ...prev, [uiSeason]: byUi }));
+        })
+        .catch(() => {
+          setSeasonMetaCache((prev) => ({ ...prev, [uiSeason]: {} }));
+        })
+        .finally(() => {
+          setLoadingSeasons((prev) => {
+            const next = new Set(prev);
+            next.delete(uiSeason);
+            return next;
+          });
+        });
+    }
+  }, [
+    open,
+    expandedSeasons,
+    loadSeasonEpisodes,
+    seasonMetaCache,
+    loadingSeasons,
+  ]);
+
+  const episodes = useMemo(
+    () => allEpisodes.filter((ep) => selectedKeys.has(epKey(ep))),
+    [allEpisodes, selectedKeys],
+  );
 
   const episodeCount = episodes.length;
 
-  const toggleSeason = (num) => {
-    setSelectedSeasons((prev) => {
+  const toggleSeasonExpanded = (num) => {
+    setExpandedSeasons((prev) => {
       const next = new Set(prev);
       if (next.has(num)) next.delete(num);
       else next.add(num);
       return next;
     });
+  };
+
+  const seasonEpisodeKeys = (uiSeason) => {
+    const list = episodesBySeason.get(uiSeason) || [];
+    return list.map(epKey);
+  };
+
+  const seasonSelectionState = (uiSeason) => {
+    const keys = seasonEpisodeKeys(uiSeason);
+    if (!keys.length) return "none";
+    const selected = keys.filter((k) => selectedKeys.has(k)).length;
+    if (selected === 0) return "none";
+    if (selected === keys.length) return "all";
+    return "partial";
+  };
+
+  const toggleSeason = (uiSeason) => {
+    const keys = seasonEpisodeKeys(uiSeason);
+    const state = seasonSelectionState(uiSeason);
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (state === "all") keys.forEach((k) => next.delete(k));
+      else keys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
+  const toggleEpisode = (key) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedKeys(new Set(allEpisodes.map(epKey)));
+  };
+
+  const selectNone = () => {
+    setSelectedKeys(new Set());
   };
 
   const toggleSource = (id) => {
@@ -210,80 +395,38 @@ export default function SeriesDownloadModal({
   })();
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 999999,
-        background: "rgba(0,0,0,0.78)",
-        backdropFilter: "blur(6px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-      onClick={busy ? undefined : onClose}
-    >
+    <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
       <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          width: 520,
-          maxWidth: "95vw",
-          maxHeight: "85vh",
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
-        }}
+        className="download-modal series-download-modal"
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "15px 20px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <span style={{ fontWeight: 600, fontSize: 15 }}>
-            <DownloadIcon size={14} /> Download series
+        <div className="download-modal-header">
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <DownloadIcon /> Download series
           </span>
-          <button className="icon-btn" onClick={onClose} disabled={busy}>
+          <button
+            className="icon-btn"
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+          >
             <CloseIcon />
           </button>
         </div>
 
-        <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
-          <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 14 }}>
+        <div className="series-download-modal__body">
+          <p className="series-download-modal__show-title">
             {showTitle}
-            {year ? ` (${year})` : ""} — automates the same steps you use manually:
-            open each episode in the player below, start playback in the embed,
-            then queue the download when the stream is ready.
-            {!isAnime && (
-              <>
-                {" "}
-                Sources:{" "}
-                {sources
-                  .map((s) => (s === "videasy" ? "Videasy" : "VidSrc"))
-                  .join(", ")}
-                .
-              </>
-            )}
+            {year ? ` (${year})` : ""}
+          </p>
+          <p className="series-download-modal__hint">
+            Plays each episode in the embed player below and queues a download
+            when the stream is ready — same as doing it manually.
           </p>
 
           {busy && (
-            <div
-              style={{
-                padding: 10,
-                marginBottom: 12,
-                borderRadius: 8,
-                background: "rgba(229,9,20,0.1)",
-                border: "1px solid rgba(229,9,20,0.25)",
-                fontSize: 12,
-                color: "var(--text1)",
-              }}
-            >
+            <div className="series-download-modal__alert series-download-modal__alert--warn">
               The video player on this page is running each episode in the
               background (you may see it load behind this dialog). Do not close
               the show page until finished.
@@ -291,139 +434,161 @@ export default function SeriesDownloadModal({
           )}
 
           {!downloadPath && (
-            <div
-              style={{
-                padding: 10,
-                background: "rgba(229,9,20,0.08)",
-                borderRadius: 8,
-                fontSize: 12,
-                color: "var(--red)",
-                marginBottom: 12,
-              }}
-            >
+            <div className="series-download-modal__alert series-download-modal__alert--error">
               Set a download folder in Settings or the single-episode download
               dialog first.
             </div>
           )}
 
-          {!isAnime && (
-            <div style={{ marginBottom: 14 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: "var(--text3)",
-                  marginBottom: 6,
-                  textTransform: "uppercase",
-                }}
-              >
-                Sources
+          <div className="series-download-modal__settings">
+            {!isAnime && (
+              <div className="series-download-modal__settings-row">
+                <span className="series-download-modal__section-label">
+                  Sources
+                </span>
+                <div className="series-download-modal__sources">
+                  {["videasy", "vidsrc"].map((id) => (
+                    <label key={id} className="series-download-modal__chip">
+                      <input
+                        type="checkbox"
+                        checked={sources.includes(id)}
+                        onChange={() => toggleSource(id)}
+                        disabled={busy}
+                      />
+                      {id === "videasy" ? "Videasy" : "VidSrc"}
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {["videasy", "vidsrc"].map((id) => (
-                  <label
-                    key={id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 12,
-                      cursor: busy ? "default" : "pointer",
-                    }}
-                  >
+            )}
+            <label className="series-download-modal__option">
+              <input
+                type="checkbox"
+                checked={skipExisting}
+                onChange={(e) => setSkipExisting(e.target.checked)}
+                disabled={busy}
+              />
+              <span>
+                Skip episodes already downloaded or actively downloading
+              </span>
+            </label>
+          </div>
+
+          <div className="series-download-modal__ep-toolbar">
+            <p className="series-download-modal__section-label" style={{ margin: 0 }}>
+              Episodes ({episodeCount} selected)
+            </p>
+            <div className="series-download-modal__ep-toolbar-actions">
+              <button
+                type="button"
+                className="series-download-modal__link-btn"
+                disabled={busy || episodeCount === allEpisodes.length}
+                onClick={selectAll}
+              >
+                Select all
+              </button>
+              <span className="series-download-modal__toolbar-dot">·</span>
+              <button
+                type="button"
+                className="series-download-modal__link-btn"
+                disabled={busy || episodeCount === 0}
+                onClick={selectNone}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="series-download-modal__seasons">
+            {seasons.map((s) => {
+              const uiSeason = s.season_number;
+              const eps = episodesBySeason.get(uiSeason) || [];
+              const expanded = expandedSeasons.has(uiSeason);
+              const selState = seasonSelectionState(uiSeason);
+              const selectedInSeason = eps.filter((ep) =>
+                selectedKeys.has(epKey(ep)),
+              ).length;
+              const metaForSeason = seasonMetaCache[uiSeason];
+              const loadingMeta = loadingSeasons.has(uiSeason);
+
+              return (
+                <div
+                  key={uiSeason}
+                  className={`series-download-modal__season ${expanded ? "series-download-modal__season--expanded" : ""}`}
+                >
+                  <div className="series-download-modal__season-head">
                     <input
                       type="checkbox"
-                      checked={sources.includes(id)}
-                      onChange={() => toggleSource(id)}
-                      disabled={busy}
+                      checked={selState === "all"}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selState === "partial";
+                      }}
+                      onChange={() => toggleSeason(uiSeason)}
+                      onClick={(e) => e.stopPropagation()}
+                      disabled={busy || !eps.length}
+                      aria-label={`Select all ${s.name || `Season ${uiSeason}`}`}
                     />
-                    {id === "videasy" ? "Videasy" : "VidSrc"}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
+                    <button
+                      type="button"
+                      className="series-download-modal__season-toggle"
+                      onClick={() => toggleSeasonExpanded(uiSeason)}
+                      disabled={busy || !eps.length}
+                      aria-expanded={expanded}
+                    >
+                      <span
+                        className={`series-download-modal__season-chevron ${expanded ? "series-download-modal__season-chevron--open" : ""}`}
+                      >
+                        <ChevronRightIcon size={14} />
+                      </span>
+                      <span className="series-download-modal__season-name">
+                        {s.name || `Season ${uiSeason}`}
+                      </span>
+                      <span className="series-download-modal__season-meta">
+                        {selectedInSeason}/{eps.length || s.episode_count || 0}{" "}
+                        ep
+                      </span>
+                    </button>
+                  </div>
 
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 12,
-              marginBottom: 14,
-              cursor: busy ? "default" : "pointer",
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={skipExisting}
-              onChange={(e) => setSkipExisting(e.target.checked)}
-              disabled={busy}
-            />
-            Skip episodes already downloaded or actively downloading
-          </label>
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--text3)",
-              marginBottom: 6,
-              textTransform: "uppercase",
-            }}
-          >
-            Seasons ({episodeCount} episodes selected)
-          </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-              maxHeight: 200,
-              overflowY: "auto",
-              marginBottom: 14,
-            }}
-          >
-            {seasons.map((s) => (
-              <label
-                key={s.season_number}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 12,
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  background: "var(--surface2)",
-                  cursor: busy ? "default" : "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedSeasons.has(s.season_number)}
-                  onChange={() => toggleSeason(s.season_number)}
-                  disabled={busy}
-                />
-                <span style={{ flex: 1 }}>
-                  {s.name || `Season ${s.season_number}`}
-                </span>
-                <span style={{ color: "var(--text3)" }}>
-                  {s.episode_count || 0} ep
-                </span>
-              </label>
-            ))}
+                  {expanded && (
+                    <div className="series-download-modal__ep-list">
+                      {loadingMeta && !metaForSeason ? (
+                        <div className="series-download-modal__ep-loading">
+                          Loading episodes…
+                        </div>
+                      ) : (
+                        eps.map((ep) => {
+                          const uiEpisode = ep.uiEpisode ?? ep.episode;
+                          const key = epKey(ep);
+                          const meta = metaForSeason?.[uiEpisode];
+                          const download = downloadsByEpisodeKey?.get(
+                            dlLookupKey(uiSeason, uiEpisode),
+                          );
+                          return (
+                            <SeriesDownloadEpisodeRow
+                              key={key}
+                              ep={ep}
+                              uiSeason={uiSeason}
+                              uiEpisode={uiEpisode}
+                              selected={selectedKeys.has(key)}
+                              busy={busy}
+                              posterPath={posterPath}
+                              meta={meta}
+                              download={download}
+                              onToggle={() => toggleEpisode(key)}
+                            />
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {progress && (
-            <div
-              style={{
-                padding: 12,
-                background: "var(--surface2)",
-                borderRadius: 8,
-                fontSize: 12,
-                marginBottom: 12,
-              }}
-            >
+            <div className="series-download-modal__progress">
               <div style={{ marginBottom: 6 }}>{progressLine}</div>
               <div style={{ color: "var(--text3)" }}>
                 {progress.staged ?? 0} started · {progress.skipped ?? 0} skipped
@@ -455,31 +620,27 @@ export default function SeriesDownloadModal({
           )}
 
           {error && (
-            <div style={{ color: "var(--red)", fontSize: 12, marginBottom: 10 }}>
+            <div
+              className="series-download-modal__alert series-download-modal__alert--error"
+              style={{ marginTop: 12 }}
+            >
               {error}
             </div>
           )}
         </div>
 
-        <div
-          style={{
-            padding: "12px 20px",
-            borderTop: "1px solid var(--border)",
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-          }}
-        >
+        <div className="series-download-modal__footer">
           {busy ? (
-            <button className="btn btn-ghost" onClick={handleCancel}>
+            <button type="button" className="btn btn-ghost" onClick={handleCancel}>
               Cancel
             </button>
           ) : (
-            <button className="btn btn-ghost" onClick={onClose}>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
               Close
             </button>
           )}
           <button
+            type="button"
             className="btn btn-primary"
             disabled={
               busy ||
@@ -496,7 +657,7 @@ export default function SeriesDownloadModal({
               ? "Checking downloader…"
               : busy
                 ? "Working…"
-                : `Download ${episodeCount} episodes`}
+                : `Download ${episodeCount} episode${episodeCount === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>
