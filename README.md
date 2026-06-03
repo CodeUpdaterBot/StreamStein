@@ -24,6 +24,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 ![Download Everything](screenshots/download.png)
 ![Customize](screenshots/customize-1.png)
 ![Customize](screenshots/customize-2.png)
+![Downloader](screenshots/StreamsteinSeriesDownloader.gif)
 
 ---
 ## Streaming & Downloading
