@@ -1,0 +1,60 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Video & Channel Downloader",
+    "version": "0.1.2",
+    "description": "Download individual YouTube videos or entire channels directly from your browser. The best YouTube downloader.",
+    "background": {
+      "service_worker": "background.js",
+      "type": "module"
+    },
+    "action": {
+      "default_icon": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+      }
+    },
+    "permissions": [
+      "downloads",
+      "tabs",
+      "storage",
+      "windows"
+    ],
+    "host_permissions": [
+      "https://www.youtube.com/*",
+      "https://youtu.be/*",
+      "https://*.googlevideo.com/*",
+      "http://localhost:8789/*",
+      "http://127.0.0.1:8789/*"
+    ],
+    "content_scripts": [
+      {
+        "matches": [
+          "http://*/*",
+          "https://*/*"
+        ],
+        "js": [
+          "content.js"
+        ],
+        "run_at": "document_start"
+      }
+    ],
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "injected.js"
+        ],
+        "matches": [
+          "<all_urls>"
+        ]
+      }
+    ],
+    "icons": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+  
