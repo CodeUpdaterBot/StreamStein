@@ -12,7 +12,7 @@ A cross-platform Electron Desktop App to stream and download any Movie, TV Serie
 - 📥 **Stream or Download** anything you want to watch, one movie or entire show at a time.
 - 📚 **Local Library** to track & save what you watched and manage your Downloads.
 - ⚙️ **Customize** the Interface and Features to your unique needs.
-- 🛡️ **No Add** Completely Ads and Tracker free, forever.
+- 🛡️ **No Adds** Completely Ads and Tracker free, forever.
 - ⚡ **Speed:** Stream faster than any Browser can.
 
 ![Explore new Stuff](screenshots/trending.png)
