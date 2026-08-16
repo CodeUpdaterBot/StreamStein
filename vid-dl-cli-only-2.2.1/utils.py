@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Helper Functions: ffmpeg-check/install, network speed test, config,
-Videasy-Header builder and cleanup helper.
+Helper Functions: ffmpeg-check/install, deno-check/download, network speed test,
+config, Videasy-Header builder and cleanup helper.
 """
 
 import configparser
@@ -10,42 +10,265 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
+import urllib.request
+import zipfile
 
-import requests
+try:
+    from curl_cffi import requests  # noqa: F401  (optional; used by curl_cffi_available)
+except ImportError:
+    requests = None
 
-CONFIG_FILE = "download_config.ini"
+# ---------------------------------------------------------------------------
+# Path helpers (PyInstaller-safe)
+# ---------------------------------------------------------------------------
+
+
+def _config_dir() -> str:
+    """
+    macOS   → ~/Library/Application Support/VideoDownloader
+    Windows → %APPDATA%\\VideoDownloader
+    Linux   → ~/.config/VideoDownloader
+    """
+    system = platform.system().lower()
+    if system == "darwin":
+        base = os.path.join(
+            os.path.expanduser("~"), "Library", "Application Support", "VideoDownloader"
+        )
+    elif system == "windows":
+        base = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")), "VideoDownloader"
+        )
+    else:
+        base = os.path.join(os.path.expanduser("~"), ".config", "VideoDownloader")
+    os.makedirs(base, exist_ok=True)
+    return base
+
+
+CONFIG_FILE = os.path.join(_config_dir(), "download_config.ini")
 TEST_URL = (
     "https://ipv4.download.thinkbroadband.com/1MB.zip"  # 1MB test file for speed test
 )
 
+# Each run gets its own file: videodownloader_2026-06-16_14-23-05.log
 
-def check_ffmpeg():
+
+def _new_log_file() -> str | None:
     try:
-        subprocess.run(
-            ["ffmpeg", "-version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        )
-        return True
+        ts = time.strftime("%Y-%m-%d_%H-%M-%S")
+        log_dir = _config_dir()
+        path = os.path.join(log_dir, f"videodownloader_{ts}.log")
+        open(path, "w").close()
+        existing = sorted(glob.glob(os.path.join(log_dir, "videodownloader_*.log")))
+        for old in existing[:-3]:
+            try:
+                os.remove(old)
+            except Exception:
+                pass
+        return path
     except Exception:
-        print("ERROR: ffmpeg is not installed or not in PATH.")
-        print("Download: https://ffmpeg.org/download.html")
+        return None
+
+
+LOG_FILE = _new_log_file()
+
+
+class _Tee:
+    """Wraps a stream (stdout or stderr) and copies every write to a log file."""
+
+    def __init__(self, original, log_file: str):
+        self._orig = original
+        try:
+            self._file = open(log_file, "w", encoding="utf-8")
+        except Exception:
+            self._file = None
+
+    def write(self, data: str) -> int:
+        if self._orig is not None:
+            try:
+                self._orig.write(data)
+            except Exception:
+                pass
+        if data and self._file is not None:
+            try:
+                self._file.write(data)
+                self._file.flush()
+            except Exception:
+                pass
+        return len(data)
+
+    def flush(self):
+        if self._orig is not None:
+            try:
+                self._orig.flush()
+            except Exception:
+                pass
+        if self._file is not None:
+            try:
+                self._file.flush()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):
+        # sys.stdout/sys.stderr can be None under --windowed builds on Windows
+        # (no console attached), so there's nothing to delegate to.
+        if self._orig is None:
+            raise AttributeError(name)
+        return getattr(self._orig, name)
+
+
+def _setup_output_tee() -> None:
+    """Redirect stdout and stderr so every print() also lands in LOG_FILE."""
+    if LOG_FILE is None:
+        return  # no writable log path (e.g. Wine / restricted env)
+    if isinstance(sys.stdout, _Tee):
+        return  # already set up
+    sys.stdout = _Tee(sys.stdout, LOG_FILE)
+    sys.stderr = _Tee(sys.stderr, LOG_FILE)
+
+
+_setup_output_tee()
+
+# ---------------------------------------------------------------------------
+# Deno helpers
+# ---------------------------------------------------------------------------
+
+_DENO_VERSION = "2.3.3"  # pinned; bump here to upgrade
+
+
+def _deno_asset_url() -> tuple[str, str]:
+    """Return (download_url, archive_name) for the current OS/arch."""
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "windows":
+        if machine in ("arm64", "aarch64"):
+            archive = "deno-aarch64-pc-windows-msvc.zip"
+        else:
+            archive = "deno-x86_64-pc-windows-msvc.zip"
+    elif system == "darwin":
+        if machine in ("arm64", "aarch64"):
+            archive = "deno-aarch64-apple-darwin.zip"
+        else:
+            archive = "deno-x86_64-apple-darwin.zip"
+    else:  # Linux
+        if machine in ("arm64", "aarch64"):
+            archive = "deno-aarch64-unknown-linux-gnu.zip"
+        else:
+            archive = "deno-x86_64-unknown-linux-gnu.zip"
+
+    url = (
+        f"https://github.com/denoland/deno/releases/download/v{_DENO_VERSION}/{archive}"
+    )
+    return url, archive
+
+
+def _deno_exe_name() -> str:
+    return "deno.exe" if platform.system().lower() == "windows" else "deno"
+
+
+def _is_valid_deno_executable(path: str) -> bool:
+    """Return True if *path* points to a working Deno binary for this OS/arch."""
+    if not path:
+        return False
+    if not os.path.isfile(path):
+        return False
+    if not os.access(path, os.X_OK):
+        return False
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=8,
+        )
+        return result.returncode == 0 and b"deno" in result.stdout.lower()
+    except Exception:
         return False
 
 
+def get_deno_path(config: "configparser.ConfigParser") -> str:
+    """Return the configured deno path (may be empty/invalid)."""
+    return config.get("DownloadOptions", "deno_path", fallback="").strip()
+
+
+def check_deno(config: "configparser.ConfigParser") -> bool:
+    """Return True if a valid Deno executable is configured."""
+    return _is_valid_deno_executable(get_deno_path(config))
+
+
+def find_deno_in_path() -> str:
+    """Return path to 'deno' if it's already on PATH, else empty string."""
+    found = shutil.which("deno")
+    return found if found and _is_valid_deno_executable(found) else ""
+
+
+def download_deno(target_dir: str | None = None) -> str:
+    """
+    Download the Deno binary for the current platform into *target_dir*
+    (defaults to the persistent app-support directory, which survives
+    PyInstaller restarts unlike the temporary _MEIxxxxxx extraction folder).
+    Returns the full path to the extracted executable.
+    Raises on failure.
+    """
+    if target_dir is None:
+        target_dir = _config_dir()
+
+    url, archive_name = _deno_asset_url()
+    archive_path = os.path.join(target_dir, archive_name)
+
+    print(f"Deno: downloading {url} …")
+    urllib.request.urlretrieve(url, archive_path)
+
+    print(f"Deno: extracting {archive_name} …")
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        zf.extractall(target_dir)
+    os.remove(archive_path)
+
+    exe_path = os.path.join(target_dir, _deno_exe_name())
+    if not os.path.isfile(exe_path):
+        raise FileNotFoundError(
+            f"Expected Deno executable not found after extraction: {exe_path}"
+        )
+
+    # Ensure executable bit is set on POSIX
+    if platform.system().lower() != "windows":
+        current = os.stat(exe_path).st_mode
+        os.chmod(exe_path, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return exe_path
+
+
+def save_deno_path(config: "configparser.ConfigParser", path: str) -> None:
+    """Persist *path* as 'deno_path' in the config file."""
+    config["DownloadOptions"]["deno_path"] = path
+    with open(CONFIG_FILE, "w") as f:
+        config.write(f)
+
+
+def check_ffmpeg():
+    """Check whether ffmpeg is available on PATH (CLI version)."""
+    import shutil
+    if not shutil.which("ffmpeg"):
+        print("[Warning] ffmpeg not found. Please install it: https://ffmpeg.org/download.html", file=__import__('sys').stderr)
+        return False
+    return True
+
+def install_ffmpeg():
+    """Print ffmpeg install hint (CLI version)."""
+    print("Please install ffmpeg manually: https://ffmpeg.org/download.html")
+
 def network_speed_test():
+    # Uses urllib instead of curl_cffi to avoid libcurl double-free crashes
+    # that occur with impersonate+stream on some Linux/venv setups.
     try:
         start_time = time.time()
-        response = requests.get(TEST_URL, stream=True, timeout=10)
-        total = 0
-        chunk_size = 1024 * 1024  # 1 MB
-        for chunk in response.iter_content(chunk_size=chunk_size):
-            total += len(chunk)
-            break
+        with urllib.request.urlopen(TEST_URL, timeout=10) as resp:
+            chunk = resp.read(1024 * 1024)  # read 1 MB
+        total = len(chunk)
         duration = time.time() - start_time
         if duration == 0:
             duration = 0.1
@@ -56,12 +279,23 @@ def network_speed_test():
 
 
 def load_or_create_config():
+    print(f"load_or_create_config: config path = {CONFIG_FILE}")
     config = configparser.ConfigParser()
     if os.path.exists(CONFIG_FILE):
         config.read(CONFIG_FILE)
         if "DownloadOptions" in config:
+            # Backfill deno_path key if missing (upgrading from older config)
+            if "deno_path" not in config["DownloadOptions"]:
+                print(f"Config loaded (backfilling missing deno_path): {CONFIG_FILE}")
+                config["DownloadOptions"]["deno_path"] = find_deno_in_path()
+                with open(CONFIG_FILE, "w") as f:
+                    config.write(f)
+            else:
+                print(f"Config loaded: {CONFIG_FILE}")
             return config
+    print(f"No config found, running speed test to create one: {CONFIG_FILE}")
     speed = network_speed_test()
+    print(f"Speed test result: {speed} MB/s")
     if speed >= 5:
         concurrent_fragments = "10"
         http_chunk_size = "4194304"
@@ -79,9 +313,14 @@ def load_or_create_config():
         "http_chunk_size": http_chunk_size,
         "download_folder": os.path.expanduser("~"),
         "max_concurrent_downloads": max_concurrent,
+        "deno_path": find_deno_in_path(),
     }
-    with open(CONFIG_FILE, "w") as configfile:
-        config.write(configfile)
+    try:
+        with open(CONFIG_FILE, "w") as configfile:
+            config.write(configfile)
+        print(f"Config created: {CONFIG_FILE}")
+    except OSError as e:
+        print(f"Failed to write config to {CONFIG_FILE}: {e}")
     return config
 
 
@@ -170,16 +409,184 @@ def friendly_error(raw: str) -> str:
     return cleaned[:120] + ("…" if len(cleaned) > 120 else "")
 
 
+DEFAULT_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/136.0.0.0 Safari/537.36"
+)
+
+# Player origins used as Referer/Origin when CDNs reject anonymous fetches.
+# Keep in sync with src/ipc/downloads.js PLAYER_ACCESS_HEADERS.
+PLAYER_HEADER_PROFILES = (
+    {
+        "label": "videasy",
+        "Origin": "https://player.videasy.to",
+        "Referer": "https://player.videasy.to/",
+    },
+    {
+        "label": "vidsrc",
+        "Origin": "https://vsembed.su",
+        "Referer": "https://vsembed.su/",
+    },
+    {
+        "label": "vidking",
+        "Origin": "https://www.vidking.net",
+        "Referer": "https://www.vidking.net/",
+    },
+)
+
+
 def get_videasy_headers():
     """
-    The special headers that are needed for Videasy.
-    These are only used if needed (Retry after 403).
+    Headers that mirror what the browser sends for Videasy-hosted streams.
+    The User-Agent must be explicitly included: yt-dlp passes http_headers
+    to ffmpeg via -headers, but the impersonate UA is NOT automatically
+    forwarded to ffmpeg segment downloads .
     """
     return {
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://player.videasy.net",
-        "Referer": "https://player.videasy.net/",
+        "User-Agent": DEFAULT_BROWSER_UA,
+        "Origin": "https://player.videasy.to",
+        "Referer": "https://player.videasy.to/",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "cross-site",
+        "DNT": "1",
+        "Accept-Language": "en-US,en;q=0.9",
     }
+
+
+def get_player_header_profiles():
+    """Return ordered Origin/Referer profiles for stream CDN fallbacks."""
+    return [
+        {
+            "User-Agent": DEFAULT_BROWSER_UA,
+            "Origin": profile["Origin"],
+            "Referer": profile["Referer"],
+            "_label": profile["label"],
+        }
+        for profile in PLAYER_HEADER_PROFILES
+    ]
+
+
+def curl_cffi_available() -> bool:
+    """Return True when curl_cffi is installed (required for yt-dlp browser impersonation)."""
+    try:
+        import curl_cffi  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def is_access_denied_error(err: str) -> bool:
+    s = str(err or "").lower()
+    return "403" in s or "forbidden" in s
+
+
+def is_cloudflare_error(err: str) -> bool:
+    """Detect Cloudflare / TLS fingerprint blocks that need browser impersonation."""
+    s = str(err or "").lower()
+    return (
+        "cloudflare" in s
+        or "anti-bot" in s
+        or "impersonat" in s
+        or ("tls" in s and "fingerprint" in s)
+    )
+
+
+def is_cookie_db_error(err: str) -> bool:
+    s = str(err or "").lower()
+    return (
+        ("cookie" in s and ("database" in s or "could not copy" in s))
+        or ("permission denied" in s and "cookie" in s)
+        or ("cookiesfrombrowser" in s and "error" in s)
+    )
+
+
+def should_retry_with_access_fallback(err: str) -> bool:
+    return (
+        is_cloudflare_error(err)
+        or is_access_denied_error(err)
+        or is_cookie_db_error(err)
+    )
+
+
+def default_impersonate_target() -> str:
+    """Platform-appropriate Chrome target for yt-dlp --impersonate."""
+    system = platform.system()
+    if system == "Windows":
+        return "chrome:windows-10"
+    if system == "Darwin":
+        return "chrome:macos-13"
+    return "chrome"
+
+
+_impersonation_warned = False
+
+
+def apply_browser_impersonation(opts: dict) -> dict:
+    """
+    Enable yt-dlp browser impersonation on the given options dict (in-place).
+
+    Applies globally for all HTTP requests and for the generic extractor's
+    initial webpage fetch (Cloudflare / TLS fingerprinting).
+    """
+    global _impersonation_warned
+    if not isinstance(opts, dict):
+        return opts
+
+    if not curl_cffi_available():
+        if not _impersonation_warned:
+            print(
+                "[warn] curl_cffi is not installed; browser impersonation is disabled. "
+                'Rebuild vid-dl with: pip install "yt-dlp[default,curl-cffi]"'
+            )
+            _impersonation_warned = True
+        return opts
+
+    target = default_impersonate_target()
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        opts["impersonate"] = ImpersonateTarget.from_str(target)
+    except Exception as exc:
+        if not _impersonation_warned:
+            print(f"[warn] Could not configure browser impersonation: {exc}")
+            _impersonation_warned = True
+        return opts
+
+    extractor_args = dict(opts.get("extractor_args") or {})
+    generic = dict(extractor_args.get("generic") or {})
+    generic["impersonate"] = [target.split(":")[0]]
+    extractor_args["generic"] = generic
+    opts["extractor_args"] = extractor_args
+    return opts
+
+
+def _keep_auth_headers(prev: dict, headers: dict) -> dict:
+    for keep in ("Cookie", "Authorization"):
+        if keep in prev and keep not in headers:
+            headers[keep] = prev[keep]
+    return headers
+
+
+def apply_videasy_headers_opts(base_opts: dict) -> dict:
+    opts = dict(base_opts or {})
+    prev = dict(opts.get("http_headers") or {})
+    headers = get_videasy_headers()
+    opts["http_headers"] = _keep_auth_headers(prev, headers)
+    return opts
+
+
+def apply_player_headers_opts(base_opts: dict, profile: dict) -> dict:
+    opts = dict(base_opts or {})
+    prev = dict(opts.get("http_headers") or {})
+    headers = {
+        key: value
+        for key, value in (profile or {}).items()
+        if not str(key).startswith("_")
+    }
+    opts["http_headers"] = _keep_auth_headers(prev, headers)
+    return opts
 
 
 def cleanup_download_folder(folder):
