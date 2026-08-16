@@ -1,0 +1,13 @@
+win:
+python -m PyInstaller --noconfirm --onedir --clean --noupx --collect-all curl_cffi --exclude-module pycryptodomex.selftest --exclude-module pycryptodomex.tests --name "vid-dl" cli.py
+
+linux:
+python -m PyInstaller --noconfirm --onedir --clean --noupx \
+  --collect-all curl_cffi \
+  --exclude-module pycryptodomex.selftest \
+  --exclude-module pycryptodomex.tests \
+  --name "vid-dl" \
+  cli.py
+
+StreamStein uses scripts/build-vid-dl.js (npm run build:vid-dl -- --force)
+which runs the same flags without --windowed so stdout/stderr work.
