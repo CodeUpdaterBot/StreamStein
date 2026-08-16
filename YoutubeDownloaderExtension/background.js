@@ -309,7 +309,13 @@ async function handleBridgeDownload(message) {
     `http://localhost:8789/api/${endpointPath}`
   ];
 
-  const search = new URLSearchParams({ url, ...params });
+  const search = new URLSearchParams({
+    url,
+    ...params,
+    ...(typeof message?.meta?.title === "string" && message.meta.title.trim()
+      ? { title: message.meta.title.trim() }
+      : {})
+  });
   let lastError = null;
 
   for (const ep of endpoints) {

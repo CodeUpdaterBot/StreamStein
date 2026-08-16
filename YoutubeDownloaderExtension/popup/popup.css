@@ -1171,6 +1171,14 @@ select {
   margin-top: 4px;
 }
 
+.download-anyway-button {
+  margin-top: 8px;
+}
+
+.download-anyway-button[hidden] {
+  display: none;
+}
+
 .small-button {
   padding: 7px 11px;
   font-size: 11px;
@@ -1265,6 +1273,69 @@ select {
 .toggle-row input:checked + .toggle-ui {
   background: var(--ss-red);
   border-color: var(--ss-red);
+}
+
+.channel-auto-update-heading {
+  margin-top: 0.75rem;
+}
+
+.channel-auto-update-schedule-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 0.25rem;
+}
+
+.channel-auto-update-schedule-controls select {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  color-scheme: dark;
+}
+
+.channel-auto-update-schedule-controls select option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.channel-auto-update-run-btn {
+  flex-shrink: 0;
+  align-self: stretch;
+  padding: 9px 12px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.channel-auto-update-run-btn.is-running {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.channel-auto-update-status {
+  margin: 0.35rem 0 0.5rem;
+  min-height: 1.2em;
+  transition: color 0.2s ease;
+}
+
+.channel-auto-update-status.is-flash-success {
+  color: var(--success);
+}
+
+.channel-auto-update-status.is-flash-info {
+  color: var(--text-secondary);
+}
+
+.channel-auto-update-status.is-flash-error {
+  color: var(--danger);
+}
+
+[data-theme="light"] .channel-auto-update-schedule-controls select {
+  color-scheme: light;
+}
+
+[data-theme="light"] .channel-auto-update-schedule-controls select option {
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .toggle-row input:checked + .toggle-ui::after {

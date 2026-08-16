@@ -9,6 +9,11 @@ import { LocalStorage } from "node-localstorage";
 import { Innertube, Platform, UniversalCache, Log } from "youtubei.js";
 import OpenAI from "openai";
 import { createYoutubeCatalogStore } from "./youtube-catalog.js";
+import {
+  createChannelAutoUpdateRunner,
+  createChannelAutoUpdateStore,
+  normalizeChannelUrl
+} from "./channelAutoUpdate.js";
 
 /** Parsed by Streamstein main process (ytBridge) to refresh the YouTube library UI. */
 const YOUTUBE_CATALOG_UPDATED_PREFIX = "__STREAMSTEIN_YOUTUBE_CATALOG_UPDATED__";
@@ -345,6 +350,9 @@ const downloadsDir = path.join(os.homedir(), "Downloads");
 const localStorageDir = path.join(downloadsDir, "yt-saver-localstorage");
 const asrWorkDir = path.join(projectRoot, ".yt-saver-asr");
 const libraryFilePath = path.join(projectRoot, "library.json");
+const channelAutoUpdateFilePath = path.join(projectRoot, "channel-auto-update.json");
+const channelAutoUpdateStore = createChannelAutoUpdateStore(channelAutoUpdateFilePath);
+let channelAutoUpdateRunner = null;
 
 function resolveInitialYoutubeLibraryFolder() {
   const fromEnv =
@@ -746,7 +754,10 @@ let serverConfig = {
   // Chat/LLM configuration
   openaiKey: "",
   openaiBaseUrl: "",
-  openaiModelDefault: "gpt-4.1"
+  openaiModelDefault: "gpt-4.1",
+  channelAutoUpdateDelaySeconds: 15,
+  channelAutoUpdateMaxQuality: "1080",
+  channelAutoUpdateDownloadTranscripts: true
 };
 let asrProgress = {
   active: false,
@@ -1577,17 +1588,22 @@ fastify.route({
     }
 
     try {
-      const innertube = await getInnertube();
-      const info = await innertube.getInfo(videoId);
-      const title = info?.basic_info?.title || `video-${videoId}`;
-      const safeTitle = sanitizeFileName(title);
-
       const qualityParam =
         request.method === "GET" ? request.query?.quality : request.body?.quality;
+      const suppliedTitle =
+        request.method === "GET" ? request.query?.title : request.body?.title;
+      const safeTitle = sanitizeFileName(
+        typeof suppliedTitle === "string" && suppliedTitle.trim()
+          ? suppliedTitle
+          : `video-${videoId}`
+      );
 
       fastify.log.info({ videoId, qualityParam }, "Download request received");
 
-      // 1) Always try yt-dlp first, using bestvideo+audio up to the selected max resolution.
+      // Always try yt-dlp before youtubei.js. Metadata lookup is not required by
+      // yt-dlp and can be independently blocked by YouTube's automated-query
+      // protection; allowing that lookup to fail first made the primary
+      // downloader unreachable.
       try {
         fastify.log.info({ videoId, qualityParam }, "Attempting yt-dlp download");
         return await downloadWithYtDlp(url, safeTitle, reply, qualityParam);
@@ -1598,7 +1614,13 @@ fastify.route({
         );
       }
 
-      // 2) Final fallback: use youtubei.js progressive download / direct proxy.
+      // Final fallback: ask youtubei.js for metadata and a progressive/direct
+      // stream only after yt-dlp itself has failed.
+      const innertube = await getInnertube();
+      const info = await innertube.getInfo(videoId);
+      const fallbackTitle = sanitizeFileName(
+        info?.basic_info?.title || safeTitle
+      );
       try {
         const stream = await innertube.download(videoId, {
           type: "video+audio",
@@ -1609,7 +1631,7 @@ fastify.route({
         fastify.log.info({ videoId }, "Serving progressive MP4 via Innertube");
         reply
           .header("Content-Type", "video/mp4")
-          .header("Content-Disposition", `attachment; filename="${safeTitle}.mp4"`)
+          .header("Content-Disposition", `attachment; filename="${fallbackTitle}.mp4"`)
           .header("Cache-Control", "no-store");
 
         return reply.send(stream);
@@ -1626,7 +1648,7 @@ fastify.route({
         }
 
         try {
-          return await proxyDirectFormat(format, safeTitle, reply);
+          return await proxyDirectFormat(format, fallbackTitle, reply);
         } catch (proxyErr) {
           request.log.error({ videoId, error: proxyErr?.message }, "Direct format proxy failed");
           reply.code(502);
@@ -1666,11 +1688,13 @@ fastify.route({
     }
 
     try {
-      const innertube = await getInnertube();
-      const info = await innertube.getInfo(videoId);
-      const title = info?.basic_info?.title || `video-${videoId}`;
-      const safeTitle = sanitizeFileName(title);
-
+      const suppliedTitle =
+        request.method === "GET" ? request.query?.title : request.body?.title;
+      const safeTitle = sanitizeFileName(
+        typeof suppliedTitle === "string" && suppliedTitle.trim()
+          ? suppliedTitle
+          : `video-${videoId}`
+      );
       fastify.log.info({ videoId }, "Transcript request received");
 
       try {
@@ -1688,6 +1712,103 @@ fastify.route({
       reply.code(500);
       return { error: err?.message || "Failed to prepare transcript download" };
     }
+  }
+});
+
+fastify.get("/api/channel/auto-update", async () => {
+  try {
+    const channels = channelAutoUpdateStore.listAll();
+    return { ok: true, channels };
+  } catch (err) {
+    return { ok: false, error: err?.message || "Failed to list channel auto-update subscriptions." };
+  }
+});
+
+fastify.get("/api/channel/auto-update/:channelKey", async (request, reply) => {
+  try {
+    const channelKey = decodeURIComponent(request.params.channelKey || "").trim();
+    const sub = channelAutoUpdateStore.get(channelKey);
+    if (!sub) {
+      reply.code(404);
+      return { ok: false, error: "Subscription not found." };
+    }
+    return { ok: true, subscription: sub };
+  } catch (err) {
+    reply.code(500);
+    return { ok: false, error: err?.message || "Failed to load subscription." };
+  }
+});
+
+fastify.put("/api/channel/auto-update", async (request, reply) => {
+  try {
+    const body = typeof request.body === "object" && request.body ? request.body : {};
+    const channelKey = typeof body.channelKey === "string" ? body.channelKey.trim() : "";
+    if (!channelKey) {
+      reply.code(400);
+      return { ok: false, error: "channelKey is required." };
+    }
+
+    let channelUrl = typeof body.channelUrl === "string" ? body.channelUrl.trim() : "";
+    if (channelUrl) {
+      try {
+        channelUrl = normalizeChannelUrl(channelUrl);
+      } catch (err) {
+        reply.code(400);
+        return { ok: false, error: err?.message || "Invalid channel URL." };
+      }
+    }
+
+    const subscription = channelAutoUpdateStore.upsert({
+      channelKey,
+      channelUrl,
+      channelName: body.channelName,
+      channelId: body.channelId,
+      enabled: body.enabled,
+      schedule: body.schedule,
+      selection: body.selection
+    });
+
+    return { ok: true, subscription };
+  } catch (err) {
+    reply.code(500);
+    return { ok: false, error: err?.message || "Failed to save subscription." };
+  }
+});
+
+fastify.delete("/api/channel/auto-update/:channelKey", async (request, reply) => {
+  try {
+    const channelKey = decodeURIComponent(request.params.channelKey || "").trim();
+    if (!channelKey) {
+      reply.code(400);
+      return { ok: false, error: "channelKey is required." };
+    }
+    const disabled = channelAutoUpdateStore.disable(channelKey);
+    if (!disabled) {
+      channelAutoUpdateStore.remove(channelKey);
+    }
+    return { ok: true };
+  } catch (err) {
+    reply.code(500);
+    return { ok: false, error: err?.message || "Failed to disable subscription." };
+  }
+});
+
+fastify.post("/api/channel/auto-update/:channelKey/run", async (request, reply) => {
+  try {
+    const channelKey = decodeURIComponent(request.params.channelKey || "").trim();
+    if (!channelKey) {
+      reply.code(400);
+      return { ok: false, error: "channelKey is required." };
+    }
+    const runner = initChannelAutoUpdateRunner();
+    const result = await runner.runChannelUpdate(channelKey, { force: true });
+    if (!result.ok) {
+      reply.code(result.error === "not-found" ? 404 : 409);
+    }
+    return { ok: result.ok, ...result };
+  } catch (err) {
+    reply.code(500);
+    return { ok: false, error: err?.message || "Failed to run channel auto-update." };
   }
 });
 
@@ -1715,6 +1836,14 @@ fastify.listen({ host: "127.0.0.1", port: PORT }).then(() => {
         : "yt-saver-bridge ready"
     );
   });
+
+  try {
+    const runner = initChannelAutoUpdateRunner();
+    runner.startScheduler(15 * 60 * 1000);
+    fastify.log.info("Channel auto-update scheduler started");
+  } catch (err) {
+    fastify.log.warn({ err: err?.message }, "Failed to start channel auto-update scheduler");
+  }
 
   void (async () => {
     try {
@@ -2369,7 +2498,12 @@ async function downloadWithYtDlp(videoUrl, safeTitle, reply, qualityParam) {
     result = await runOnce({ useAltPlayerClient: true, skipCookies: isYtDlpChromeCookieCopyError(result.stderrText) });
   }
   if (result.exitCode !== 0) {
-    throw new Error(`yt-dlp exited with code ${result.exitCode}`);
+    const detail = result.stderrText.trim();
+    throw new Error(
+      detail
+        ? `yt-dlp exited with code ${result.exitCode}: ${detail}`
+        : `yt-dlp exited with code ${result.exitCode}`
+    );
   }
 
   const stat = fs.statSync(tempFilePath);
@@ -2547,6 +2681,294 @@ async function downloadTranscriptWithYtDlp(videoUrl, safeTitle, reply) {
   return reply.send(stream);
 }
 
+function resolveChannelOutputPath(fileName, channelName) {
+  const libRoot = serverConfig.youtubeLibraryFolder || path.join(downloadsDir, "YouTube");
+  const safeChannel = sanitizeFileName(
+    normalizeCollaborativeChannelName(String(channelName || ""))
+  );
+  const safeFile = String(fileName || "video.mp4").replace(/^[/\\]+/, "");
+
+  if (serverConfig.downloadMode === "subfolder") {
+    const sub = sanitizeSubfolder(serverConfig.downloadSubfolder || "YouTube");
+    if (sub) {
+      return path.join(downloadsDir, ...sub.split("/"), path.basename(safeFile));
+    }
+  }
+
+  if (safeChannel && safeChannel !== "youtube-video") {
+    return path.join(libRoot, safeChannel, path.basename(safeFile));
+  }
+  return path.join(libRoot, path.basename(safeFile));
+}
+
+async function listChannelVideosWithYtDlp(channelUrl, maxCount = 500) {
+  const ytDlpCmd = resolveYtDlpCommand();
+  const remoteArgs = await getYtDlpRemoteComponentsArgs(ytDlpCmd);
+  const capped = Math.min(Math.max(1, Number(maxCount) || 500), 500);
+
+  const runListing = async ({ skipCookies = false, useAltPlayerClient = false } = {}) => {
+    const args = [
+      channelUrl,
+      "--flat-playlist",
+      "--print",
+      "%(id)s\t%(title)s",
+      "--playlist-end",
+      String(capped),
+      ...getYtDlpCookieArgs({ skipCookies: Boolean(skipCookies) }),
+      ...remoteArgs,
+      ...buildYtDlpStabilityArgs({ useAltPlayerClient: Boolean(useAltPlayerClient) }),
+      ...getYtDlpJsRuntimeArgs(),
+      "--quiet"
+    ];
+    const child = spawnTool(ytDlpCmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderrText = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk || "");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrText = appendLimitedText(stderrText, String(chunk || ""));
+    });
+    const exitCode = await new Promise((resolve) => {
+      child.on("error", () => resolve(1));
+      child.on("exit", (code) => resolve(typeof code === "number" ? code : 1));
+    });
+    return { exitCode, stdout, stderrText };
+  };
+
+  let result = await runListing();
+  if (
+    result.exitCode !== 0 &&
+    isYtDlpChromeCookieCopyError(result.stderrText) &&
+    getYtDlpCookieArgs().length
+  ) {
+    result = await runListing({ skipCookies: true });
+  }
+  if (result.exitCode !== 0 && isYtDlpReloadError(result.stderrText)) {
+    result = await runListing({ useAltPlayerClient: true });
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderrText || `yt-dlp channel listing failed (exit ${result.exitCode})`);
+  }
+
+  const videos = [];
+  const lines = result.stdout.split(/\r?\n/).filter(Boolean);
+  for (const line of lines) {
+    const tab = line.indexOf("\t");
+    const id = (tab >= 0 ? line.slice(0, tab) : line).trim();
+    const title = tab >= 0 ? line.slice(tab + 1).trim() : "";
+    if (id && id.length === 11) {
+      videos.push({ id, videoId: id, title: title || `Video ${videos.length + 1}` });
+    }
+  }
+  return videos;
+}
+
+async function downloadWithYtDlpToFile(videoUrl, destPath, qualityParam) {
+  const ytDlpCmd = resolveYtDlpCommand();
+  const ffmpegPath = resolveFfmpegPath(serverConfig.ffmpegPath);
+  await maybeWarmupYouTubeInBrowser(videoUrl).catch(() => {});
+
+  const parentDir = path.dirname(destPath);
+  ensureDir(parentDir);
+  const tempPath = `${destPath}.partial-${Date.now()}.mp4`;
+
+  const remoteArgs = await getYtDlpRemoteComponentsArgs(ytDlpCmd);
+  const runOnce = async ({ useAltPlayerClient, skipCookies } = {}) => {
+    const args = [
+      videoUrl,
+      ...getYtDlpCookieArgs({ skipCookies: Boolean(skipCookies) }),
+      ...remoteArgs,
+      ...buildYtDlpStabilityArgs({ useAltPlayerClient: Boolean(useAltPlayerClient) }),
+      "-f",
+      "bv*+ba/best",
+      ...getYtDlpJsRuntimeArgs(),
+      "--merge-output-format",
+      "mp4",
+      "-o",
+      tempPath,
+      "--quiet"
+    ];
+
+    const allowedQualities = ["2160", "1440", "1080", "720", "480", "360"];
+    if (qualityParam && allowedQualities.includes(String(qualityParam))) {
+      args.push("-S", `res:${qualityParam}`);
+    }
+
+    if (ffmpegPath && ffmpegPath !== "ffmpeg") {
+      args.push("--ffmpeg-location", ffmpegPath);
+    }
+
+    let stderrText = "";
+    const child = spawnTool(ytDlpCmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    child.stderr.on("data", (chunk) => {
+      stderrText = appendLimitedText(stderrText, String(chunk || ""));
+    });
+    const exitCode = await new Promise((resolve) => {
+      child.on("error", () => resolve(1));
+      child.on("exit", (code) => resolve(typeof code === "number" ? code : 1));
+    });
+    return { exitCode, stderrText };
+  };
+
+  let result = await runOnce({ useAltPlayerClient: false });
+  if (
+    result.exitCode !== 0 &&
+    isYtDlpChromeCookieCopyError(result.stderrText) &&
+    getYtDlpCookieArgs().length
+  ) {
+    result = await runOnce({ useAltPlayerClient: false, skipCookies: true });
+  }
+  if (result.exitCode !== 0 && isYtDlpReloadError(result.stderrText)) {
+    result = await runOnce({ useAltPlayerClient: true, skipCookies: isYtDlpChromeCookieCopyError(result.stderrText) });
+  }
+  if (result.exitCode !== 0) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+    throw new Error(result.stderrText || `yt-dlp exited with code ${result.exitCode}`);
+  }
+
+  try {
+    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+    fs.renameSync(tempPath, destPath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+    throw err;
+  }
+  return destPath;
+}
+
+async function downloadTranscriptToFile(videoUrl, destPath) {
+  const ytDlpCmd = resolveYtDlpCommand();
+  await maybeWarmupYouTubeInBrowser(videoUrl).catch(() => {});
+  const tmpDir = path.join(downloadsDir, "yt-saver-tmp");
+  ensureDir(tmpDir);
+  const ffmpegPath = resolveFfmpegPath(serverConfig.ffmpegPath);
+  const prefix = `auto-update-subs-${Date.now()}`;
+  const templatePath = path.join(tmpDir, `${prefix}.%(ext)s`);
+
+  const remoteArgs = await getYtDlpRemoteComponentsArgs(ytDlpCmd);
+  const makeBaseArgs = ({ useAltPlayerClient, skipCookies } = {}) => [
+    videoUrl,
+    ...getYtDlpCookieArgs({ skipCookies: Boolean(skipCookies) }),
+    ...remoteArgs,
+    ...buildYtDlpStabilityArgs({ useAltPlayerClient: Boolean(useAltPlayerClient) }),
+    "--skip-download"
+  ];
+
+  const autoSubsArgs = [
+    "--write-auto-subs",
+    "--sub-langs",
+    "en.*,en",
+    "--sub-format",
+    "vtt",
+    "--convert-subs",
+    "vtt",
+    ...getYtDlpJsRuntimeArgs(),
+    "-o",
+    templatePath,
+    "--quiet"
+  ];
+  if (ffmpegPath && ffmpegPath !== "ffmpeg") {
+    autoSubsArgs.push("--ffmpeg-location", ffmpegPath);
+  }
+
+  async function runOnce(extraArgs, { useAltPlayerClient = false, skipCookies = false } = {}) {
+    const args = [...makeBaseArgs({ useAltPlayerClient, skipCookies }), ...extraArgs];
+    const child = spawnTool(ytDlpCmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderrText = "";
+    child.stderr.on("data", (chunk) => {
+      stderrText = appendLimitedText(stderrText, String(chunk || ""));
+    });
+    const exitCode = await new Promise((resolve) => {
+      child.on("error", () => resolve(1));
+      child.on("exit", (code) => resolve(typeof code === "number" ? code : 1));
+    });
+    return { exitCode, stderrText };
+  }
+
+  let { exitCode, stderrText } = await runOnce(autoSubsArgs);
+  if (
+    exitCode !== 0 &&
+    isYtDlpChromeCookieCopyError(stderrText) &&
+    getYtDlpCookieArgs().length
+  ) {
+    ({ exitCode, stderrText } = await runOnce(autoSubsArgs, { skipCookies: true }));
+  }
+
+  let candidates = fs.readdirSync(tmpDir).filter((name) => name.startsWith(prefix));
+  if (!candidates.length) {
+    const manualSubsArgs = [
+      "--write-subs",
+      "--sub-langs",
+      "en.*,en",
+      "--sub-format",
+      "vtt",
+      "--convert-subs",
+      "vtt",
+      ...getYtDlpJsRuntimeArgs(),
+      "-o",
+      templatePath,
+      "--quiet"
+    ];
+    if (ffmpegPath && ffmpegPath !== "ffmpeg") {
+      manualSubsArgs.push("--ffmpeg-location", ffmpegPath);
+    }
+    await sleepMs(800);
+    ({ exitCode, stderrText } = await runOnce(manualSubsArgs));
+    candidates = fs.readdirSync(tmpDir).filter((name) => name.startsWith(prefix));
+  }
+
+  if (!candidates.length) {
+    throw new Error(
+      exitCode === 0
+        ? "No transcript file produced by yt-dlp."
+        : `Transcript download failed (exit code ${exitCode}).`
+    );
+  }
+
+  const chosen = candidates.find((n) => n.toLowerCase().endsWith(".vtt")) || candidates[0];
+  const transcriptPath = path.join(tmpDir, chosen);
+  ensureDir(path.dirname(destPath));
+  if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+  fs.copyFileSync(transcriptPath, destPath);
+  try {
+    fs.unlinkSync(transcriptPath);
+  } catch {}
+  return destPath;
+}
+
+function initChannelAutoUpdateRunner() {
+  if (channelAutoUpdateRunner) return channelAutoUpdateRunner;
+  channelAutoUpdateRunner = createChannelAutoUpdateRunner({
+    store: channelAutoUpdateStore,
+    log: fastify.log,
+    deps: {
+      listChannelVideos: async (channelUrl, maxCount) => {
+        const normalized = normalizeChannelUrl(channelUrl);
+        return listChannelVideosWithYtDlp(normalized, maxCount);
+      },
+      rescanLibrary,
+      checkLibraryMatches,
+      downloadVideoToFile: downloadWithYtDlpToFile,
+      downloadTranscriptToFile,
+      registerLibraryFile,
+      resolveOutputPath: resolveChannelOutputPath,
+      sanitizeFileName,
+      normalizeTitleKey,
+      safeStat,
+      sleepMs,
+      getDelaySeconds: () => serverConfig.channelAutoUpdateDelaySeconds ?? 15,
+      getMaxQuality: () => serverConfig.channelAutoUpdateMaxQuality || "1080",
+      getDownloadTranscripts: () => serverConfig.channelAutoUpdateDownloadTranscripts !== false
+    }
+  });
+  return channelAutoUpdateRunner;
+}
+
 function loadLibraryFile() {
   try {
     if (!fs.existsSync(libraryFilePath)) {
@@ -2641,13 +3063,38 @@ function normalizeTitleKeysForMatch(title) {
   add(normalizeTitleKey(sanitized));
   add(normalizeTitleKey(stripWindowsCopySuffix(title)));
   add(normalizeTitleKey(stripWindowsCopySuffix(sanitized)));
-  const episodeNums = extractEpisodeNumbersFromTitle(title);
-  for (const num of episodeNums) {
-    add(num);
-    add(`episode ${num}`);
-    add(`ep ${num}`);
-  }
+  // Episode numbers are matched only via findLibraryEntryByEpisodeNumber (channel-scoped),
+  // never as bare title keys — avoids cross-channel false positives (e.g. "Ep. 208").
   return keys;
+}
+
+/** YouTube collaborative uploads: "Primary Channel and Guest Channel" → primary only. */
+function normalizeCollaborativeChannelName(name) {
+  if (!name || typeof name !== "string") return "";
+  const trimmed = name.trim().replace(/^@/, "");
+  const parts = trimmed.split(/\s+and\s+/i);
+  if (parts.length >= 2 && parts[0].trim()) {
+    return parts[0].trim();
+  }
+  return trimmed;
+}
+
+function resolveChannelHintInput(hint) {
+  if (!hint || typeof hint !== "string") return "";
+  const trimmed = hint.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed);
+      const withoutVideos = u.pathname.replace(/\/(videos?|streams?)\/?$/i, "");
+      const parts = withoutVideos.split("/").filter(Boolean);
+      const last = parts[parts.length - 1] || "";
+      return last.replace(/^@/, "");
+    } catch {
+      return "";
+    }
+  }
+  return normalizeCollaborativeChannelName(trimmed);
 }
 
 /** Episode indexes from titles like "188: …" or filenames "188 - …". */
@@ -3561,7 +4008,7 @@ function checkLibraryMatches(videos, options = {}) {
   const normalizedResults = [];
   const channelKey =
     options && typeof options.channelHint === "string"
-      ? normalizeChannelKey(options.channelHint)
+      ? normalizeChannelKey(resolveChannelHintInput(options.channelHint))
       : "";
   const debugMode = options.debug === true;
 
@@ -3610,7 +4057,8 @@ function checkLibraryMatches(videos, options = {}) {
       if (entry) {
         matchedBy = "normalizedTitle";
         if (debugMode) debugLog.push(`Matched by normalizedTitle: ${matchedKey}`);
-      } else {
+      } else if (channelKey) {
+        // Episode-only matching requires a channel scope to avoid cross-show collisions.
         const episodeNums = extractEpisodeNumbersFromTitle(providedTitle);
         for (const episodeNum of episodeNums) {
           const episodeEntry = findLibraryEntryByEpisodeNumber(

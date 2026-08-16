@@ -265,6 +265,14 @@
               <button id="download-video" class="primary-button full-width" type="button">
                 Download Video
               </button>
+              <button
+                id="download-anyway"
+                class="secondary-button full-width download-anyway-button"
+                type="button"
+                hidden
+              >
+                Download Anyway
+              </button>
             </div>
 
             <div
@@ -403,6 +411,39 @@
                 <span class="toggle-ui" aria-hidden="true"></span>
                 <span class="field-label">Queue transcripts missing from your library</span>
               </label>
+
+              <p class="section-label channel-auto-update-heading">Auto-update</p>
+              <label class="checkbox-row toggle-row">
+                <input type="checkbox" id="channel-auto-update" />
+                <span class="toggle-ui" aria-hidden="true"></span>
+                <span class="field-label">Auto-update this channel</span>
+              </label>
+              <div
+                class="field field-compact channel-auto-update-schedule-row"
+                id="channel-auto-update-schedule-row"
+                style="display: none"
+              >
+                <span class="field-label">Check schedule</span>
+                <div class="channel-auto-update-schedule-controls">
+                  <select id="channel-auto-update-schedule" aria-label="Auto-update check schedule">
+                    <option value="6h">Every 6 hours</option>
+                    <option value="12h">Every 12 hours</option>
+                    <option value="daily" selected>Daily</option>
+                    <option value="3d">Every 3 days</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                  <button
+                    type="button"
+                    id="channel-auto-update-run-now"
+                    class="secondary-button channel-auto-update-run-btn"
+                    title="Check for new videos now"
+                  >
+                    Check now
+                  </button>
+                </div>
+              </div>
+              <p id="channel-auto-update-status" class="helper-text channel-auto-update-status"></p>
+
               <button
                 id="channel-refresh-library"
                 class="secondary-button small-button"

@@ -5,6 +5,7 @@ import {
   CHAT_MODEL_BY_ID,
   DEFAULT_CHAT_MODEL_ID
 } from "./chat-models.js";
+import { computeChannelKey, snapshotChannelSelection } from "../shared/channelPipeline.js";
 
 // =====================
 // Theme handling
@@ -420,7 +421,27 @@ function getChannelNameFromPlayerResponse(playerResponse) {
     mf.ownerChannelName ||
     mf.ownerProfileUrl ||
     "";
-  return sanitizePathFragment(String(name || "").replace(/^@/, ""));
+  return normalizeCollaborativeChannelName(sanitizePathFragment(String(name || "").replace(/^@/, "")));
+}
+
+/** YouTube collaborative uploads: "Primary Channel and Guest Channel" → primary only. */
+function normalizeCollaborativeChannelName(name) {
+  if (!name || typeof name !== "string") return "";
+  const trimmed = name.trim();
+  const parts = trimmed.split(/\s+and\s+/i);
+  if (parts.length >= 2 && parts[0].trim()) {
+    return parts[0].trim();
+  }
+  return trimmed;
+}
+
+function deriveLibraryChannelHint(channelUrlOrName) {
+  const raw = String(channelUrlOrName || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) {
+    return deriveChannelHint(raw);
+  }
+  return normalizeCollaborativeChannelName(raw);
 }
 
 function getChannelIdFromPlayerResponse(playerResponse) {
@@ -957,7 +978,7 @@ async function refreshLibraryMatchForMetadata(videoId, title, channelHint = null
     await ensureLibraryIndexed();
     const hint =
       channelHint !== null && channelHint !== undefined
-        ? channelHint
+        ? deriveLibraryChannelHint(channelHint)
         : deriveChannelHint(channelUrlInput?.value?.trim?.() || "");
     const res = await fetchBridge("/api/library/check", {
       method: "POST",
@@ -1095,23 +1116,31 @@ let singleLibraryCheckGeneration = 0;
 
 function getSingleVideoLibraryWarning(match) {
   if (!match?.hasVideo) return null;
+  const matchedDetail = match.recordedTitle
+    ? ` Matched local file: <strong>${escapeHtml(match.recordedTitle)}</strong>.`
+    : "";
   if (match.hasTranscript) {
-    return "This video is already in your local library (video and transcript). Download is disabled to avoid duplicate files.";
+    return `This video appears to be in your local library (video and transcript).${matchedDetail} Download is disabled to avoid duplicate files.`;
   }
   if (appSettings.downloadTranscripts) {
-    return "Video file already in your local library. Download will only fetch a missing transcript, not another copy of the video.";
+    return `Video file appears to be in your local library.${matchedDetail} Download will only fetch a missing transcript, not another copy of the video.`;
   }
-  return "This video is already in your local library. Download is disabled to avoid duplicate files.";
+  return `This video appears to be in your local library.${matchedDetail} Download is disabled to avoid duplicate files.`;
 }
 
-function updateSingleVideoDownloadButton(match) {
+function updateSingleVideoDownloadButton(match, options = {}) {
   if (!downloadVideoBtn) return;
   const hasVideo = Boolean(match?.hasVideo);
   const hasTranscript = Boolean(match?.hasTranscript);
   const transcriptsEnabled = Boolean(appSettings.downloadTranscripts);
   const nothingToDownload = hasVideo && (!transcriptsEnabled || hasTranscript);
-  downloadVideoBtn.disabled = nothingToDownload;
-  downloadVideoBtn.title = nothingToDownload ? "Already in your local library" : "";
+  const blocked = nothingToDownload && !options.forceDownload;
+  downloadVideoBtn.disabled = blocked;
+  downloadVideoBtn.title = blocked ? "Already in your local library" : "";
+  if (downloadAnywayBtn) {
+    downloadAnywayBtn.hidden = !blocked;
+    downloadAnywayBtn.disabled = false;
+  }
 }
 
 function setSingleVideoStatusWithLibrary(primaryMessage, primaryType, match) {
@@ -1148,7 +1177,8 @@ async function resolveSingleVideoLibraryMatch(url, options = {}) {
   if (!match?.hasVideo && options.fetchTitleIfNeeded !== false) {
     try {
       const meta = await loadPlayerResponse(trimmed);
-      match = await refreshLibraryMatchForMetadata(meta.videoId, meta.videoTitle, "");
+      const channelName = getChannelNameFromPlayerResponse(meta.playerResponse);
+      match = await refreshLibraryMatchForMetadata(meta.videoId, meta.videoTitle, channelName);
     } catch {
       // videoId-only check is enough when metadata is unavailable
     }
@@ -1514,6 +1544,7 @@ function startLiveChannelScanIfApplicable() {
     if (!channelUrlInput.value) {
       channelUrlInput.value = tab.url;
     }
+    scheduleChannelAutoUpdateLoad();
     setStatusChannel("Scanning channel…", "info");
     liveChannelCollect.tabId = tab.id;
     liveChannelCollect.url = tab.url;
@@ -2149,6 +2180,7 @@ function bindChannelSelectionEditorInputs() {
 const videoUrlInput = document.getElementById("video-url");
 const useCurrentVideoBtn = document.getElementById("use-current-video");
 const downloadVideoBtn = document.getElementById("download-video");
+const downloadAnywayBtn = document.getElementById("download-anyway");
 
 function startupDetectActiveTab() {
   getCurrentTabUrl((url) => {
@@ -2232,7 +2264,16 @@ useCurrentVideoBtn.addEventListener("click", () => {
   });
 });
 
-downloadVideoBtn.addEventListener("click", async () => {
+downloadVideoBtn.addEventListener("click", () => {
+  void handleSingleVideoDownload();
+});
+
+downloadAnywayBtn?.addEventListener("click", () => {
+  void handleSingleVideoDownload({ forceDownload: true });
+});
+
+async function handleSingleVideoDownload(options = {}) {
+  const { forceDownload = false } = options;
   const url = videoUrlInput.value.trim();
   if (!url) {
     setStatusSingle("Please enter a YouTube video URL.", "error");
@@ -2243,6 +2284,7 @@ downloadVideoBtn.addEventListener("click", async () => {
 
   setStatusSingle("Fetching video metadata…", "info");
   setButtonLoading(downloadVideoBtn, true, "Preparing…");
+  if (downloadAnywayBtn) downloadAnywayBtn.disabled = true;
 
   let metadata;
   try {
@@ -2250,42 +2292,43 @@ downloadVideoBtn.addEventListener("click", async () => {
   } catch (err) {
     setStatusSingle(err.message || "Failed to load video metadata.", "error");
     setButtonLoading(downloadVideoBtn, false);
+    if (downloadAnywayBtn) downloadAnywayBtn.disabled = false;
     return;
   }
 
   const { watchUrl, videoTitle, videoId } = metadata;
-  const normalizedTitle = normalizeTitleKey(videoTitle);
+  const channelName = getChannelNameFromPlayerResponse(metadata.playerResponse);
 
   const libraryMatch =
-    (await refreshLibraryMatchForMetadata(videoId, videoTitle, "")) ||
+    (await refreshLibraryMatchForMetadata(videoId, videoTitle, channelName)) ||
     (await resolveSingleVideoLibraryMatch(url, { force: true, fetchTitleIfNeeded: true }));
-  const hasVideo = Boolean(libraryMatch?.hasVideo);
-  const hasTranscript = Boolean(libraryMatch?.hasTranscript);
+  const hasVideo = forceDownload ? false : Boolean(libraryMatch?.hasVideo);
+  const hasTranscript = forceDownload ? false : Boolean(libraryMatch?.hasTranscript);
   const transcriptsEnabled = Boolean(appSettings.downloadTranscripts);
-  const wantVideo = !hasVideo;
-  const wantTranscript = transcriptsEnabled && !hasTranscript;
+  const wantVideo = forceDownload || !hasVideo;
+  const wantTranscript = transcriptsEnabled && (forceDownload || !hasTranscript);
 
   if (!wantVideo && !wantTranscript) {
     setStatusSingleMessages([
       {
-        message: `Already in your library:\n<strong>${videoTitle}</strong>`,
+        message: `Already in your library:\n<strong>${escapeHtml(videoTitle)}</strong>`,
         type: "warning"
       },
       {
-        message:
+        message: getSingleVideoLibraryWarning(libraryMatch) ||
           "This video and its transcript are already saved locally. Download was not started.",
         type: "warning"
       }
     ]);
     updateSingleVideoDownloadButton(libraryMatch);
     setButtonLoading(downloadVideoBtn, false);
+    if (downloadAnywayBtn) downloadAnywayBtn.disabled = false;
     return;
   }
 
   // Immediately reflect that we've handed the job to the local bridge / yt-dlp backend.
   try {
     const baseName = sanitizeFileName(videoTitle) + ".mp4";
-    const channelName = getChannelNameFromPlayerResponse(metadata.playerResponse);
     const configuredVideoPath = getDownloadPathForFile(baseName);
     const defaultVideoPath = getDefaultChannelPathForFile(baseName, channelName);
     let chosenPath = configuredVideoPath;
@@ -2312,9 +2355,11 @@ downloadVideoBtn.addEventListener("click", async () => {
     showProgressBar();
     const startedLines = [
       {
-        message: wantVideo
-          ? `Started download for:\n<strong>${videoTitle}</strong>`
-          : `Fetching transcript for:\n<strong>${videoTitle}</strong>`,
+        message: forceDownload
+          ? `Force-download started for:\n<strong>${escapeHtml(videoTitle)}</strong>`
+          : wantVideo
+            ? `Started download for:\n<strong>${escapeHtml(videoTitle)}</strong>`
+            : `Fetching transcript for:\n<strong>${escapeHtml(videoTitle)}</strong>`,
         type: "success"
       },
       {
@@ -2323,13 +2368,20 @@ downloadVideoBtn.addEventListener("click", async () => {
         type: "info"
       }
     ];
-    if (hasVideo && wantTranscript) {
+    if (!forceDownload && hasVideo && wantTranscript) {
       startedLines.splice(1, 0, {
         message: "Video already in your library — only downloading the missing transcript.",
         type: "warning"
       });
     }
+    if (forceDownload && libraryMatch?.recordedTitle) {
+      startedLines.splice(1, 0, {
+        message: `Library check was bypassed. Previously matched: <strong>${escapeHtml(libraryMatch.recordedTitle)}</strong>.`,
+        type: "warning"
+      });
+    }
     setStatusSingleMessages(startedLines);
+    updateSingleVideoDownloadButton(null, { forceDownload: true });
 
     if (wantVideo) {
       // Fire-and-forget to the background/bridge; we don't block the UI on the response.
@@ -2345,7 +2397,7 @@ downloadVideoBtn.addEventListener("click", async () => {
           videoTitle,
           playerResponse: metadata.playerResponse,
           assetType: "video",
-          source: "single",
+          source: forceDownload ? "single-force" : "single",
           quality: appSettings.maxQuality || "best",
           channelName
         })
@@ -2377,7 +2429,7 @@ downloadVideoBtn.addEventListener("click", async () => {
           videoTitle,
           playerResponse: metadata.playerResponse,
           assetType: "transcript",
-          source: "single",
+          source: forceDownload ? "single-force" : "single",
           channelName
         })
       }).then((bridgeResp) => {
@@ -2388,9 +2440,12 @@ downloadVideoBtn.addEventListener("click", async () => {
     }
   } finally {
     setButtonLoading(downloadVideoBtn, false);
-    updateSingleVideoDownloadButton(singleVideoLibraryState.match);
+    if (!forceDownload) {
+      updateSingleVideoDownloadButton(singleVideoLibraryState.match);
+    }
+    if (downloadAnywayBtn) downloadAnywayBtn.disabled = false;
   }
-});
+}
 
 // Live validate Single Video URL input
 videoUrlInput.addEventListener("input", () => {
@@ -2429,6 +2484,375 @@ const channelOnlyMissingCheckbox = document.getElementById("channel-only-missing
 const channelMissingTranscriptsCheckbox = document.getElementById("channel-missing-transcripts");
 const channelRefreshLibraryBtn = document.getElementById("channel-refresh-library");
 const channelLibrarySummaryEl = document.getElementById("channel-library-summary");
+const channelAutoUpdateCheckbox = document.getElementById("channel-auto-update");
+const channelAutoUpdateScheduleRow = document.getElementById("channel-auto-update-schedule-row");
+const channelAutoUpdateScheduleSelect = document.getElementById("channel-auto-update-schedule");
+const channelAutoUpdateRunNowBtn = document.getElementById("channel-auto-update-run-now");
+const channelAutoUpdateStatusEl = document.getElementById("channel-auto-update-status");
+
+const CHANNEL_AUTO_UPDATE_SCHEDULE_LABELS = {
+  "6h": "every 6 hours",
+  "12h": "every 12 hours",
+  daily: "daily",
+  "3d": "every 3 days",
+  weekly: "weekly"
+};
+
+let channelAutoUpdateLoadToken = 0;
+let currentChannelAutoUpdateKey = "";
+let channelAutoUpdateUrlTimer = null;
+let channelAutoUpdateFlashTimer = null;
+
+function getChannelUrlForAutoUpdate() {
+  const raw = channelUrlInput?.value?.trim?.() || "";
+  if (!raw) return "";
+  try {
+    return normalizeChannelUrl(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function formatAutoUpdateStatus(sub) {
+  if (!sub?.enabled) {
+    return "Auto-update is off for this channel.";
+  }
+  const schedule =
+    CHANNEL_AUTO_UPDATE_SCHEDULE_LABELS[sub.schedule] || sub.schedule || "daily";
+  let text = `Auto-update enabled — checks ${schedule}. Requires Streamstein running.`;
+  if (sub.lastRun) {
+    text += ` Last run: ${new Date(sub.lastRun).toLocaleString()}`;
+    if (sub.lastStatus) text += ` (${sub.lastStatus})`;
+  }
+  if (sub.lastError) {
+    text += ` Error: ${sub.lastError}`;
+  }
+  return text;
+}
+
+function setAutoUpdateScheduleVisible(visible) {
+  if (channelAutoUpdateScheduleRow) {
+    channelAutoUpdateScheduleRow.style.display = visible ? "" : "none";
+  }
+}
+
+function clearAutoUpdateStatusFlash() {
+  if (channelAutoUpdateFlashTimer) {
+    clearTimeout(channelAutoUpdateFlashTimer);
+    channelAutoUpdateFlashTimer = null;
+  }
+  channelAutoUpdateStatusEl?.classList.remove(
+    "is-flash-success",
+    "is-flash-info",
+    "is-flash-error"
+  );
+}
+
+function showAutoUpdateStatusFlash(message, variant = "info", durationMs = 4500) {
+  if (!channelAutoUpdateStatusEl) return;
+  clearAutoUpdateStatusFlash();
+  channelAutoUpdateStatusEl.textContent = message;
+  channelAutoUpdateStatusEl.classList.add(`is-flash-${variant}`);
+  channelAutoUpdateFlashTimer = setTimeout(() => {
+    clearAutoUpdateStatusFlash();
+    void loadChannelAutoUpdateState();
+  }, durationMs);
+}
+
+function restoreSelectionFromSubscription(selection) {
+  if (!selection || typeof selection !== "object") return;
+  if (channelLimitInput && selection.limit) {
+    channelLimitInput.value = String(selection.limit);
+  }
+  if (channelSkipFirstInput && selection.skipFirst !== undefined) {
+    channelSkipFirstInput.value = String(selection.skipFirst);
+  }
+  if (channelSkipLastInput && selection.skipLast !== undefined) {
+    channelSkipLastInput.value = String(selection.skipLast);
+  }
+  if (channelRangesInput && selection.ranges !== undefined) {
+    channelRangesInput.value = selection.ranges;
+  }
+  if (channelOnlyMissingCheckbox && selection.onlyMissing !== undefined) {
+    channelOnlyMissingCheckbox.checked = Boolean(selection.onlyMissing);
+  }
+  if (channelMissingTranscriptsCheckbox && selection.missingTranscripts !== undefined) {
+    channelMissingTranscriptsCheckbox.checked = Boolean(selection.missingTranscripts);
+  }
+  channelExcludedVideoIds.clear();
+  if (Array.isArray(selection.excludedVideoIds)) {
+    selection.excludedVideoIds.forEach((id) => {
+      const video = cachedChannelVideos.find((v) => v.id === id);
+      if (!video) {
+        channelExcludedVideoIds.add(id);
+        return;
+      }
+      if (!isVideoAlreadyDownloaded(video)) {
+        channelExcludedVideoIds.add(id);
+      }
+    });
+  }
+  if (cachedChannelVideos.length) {
+    renderChannelVideoPicker();
+  }
+}
+
+async function loadChannelAutoUpdateState() {
+  const channelUrl = getChannelUrlForAutoUpdate();
+  if (!channelUrl) {
+    currentChannelAutoUpdateKey = "";
+    if (channelAutoUpdateCheckbox) channelAutoUpdateCheckbox.checked = false;
+    setAutoUpdateScheduleVisible(false);
+    if (channelAutoUpdateStatusEl) channelAutoUpdateStatusEl.textContent = "";
+    return;
+  }
+
+  const channelKey = computeChannelKey(channelUrl);
+  currentChannelAutoUpdateKey = channelKey;
+  const token = ++channelAutoUpdateLoadToken;
+
+  try {
+    const res = await fetchBridge(`/api/channel/auto-update/${encodeURIComponent(channelKey)}`);
+    if (token !== channelAutoUpdateLoadToken) return;
+    if (!res) {
+      if (channelAutoUpdateStatusEl) {
+        channelAutoUpdateStatusEl.textContent =
+          "Requires Streamstein running for auto-update.";
+      }
+      return;
+    }
+    if (res.status === 404) {
+      if (channelAutoUpdateCheckbox) channelAutoUpdateCheckbox.checked = false;
+      if (channelAutoUpdateScheduleSelect) channelAutoUpdateScheduleSelect.value = "daily";
+      setAutoUpdateScheduleVisible(false);
+      if (channelAutoUpdateStatusEl) {
+        channelAutoUpdateStatusEl.textContent = "Auto-update is off for this channel.";
+      }
+      return;
+    }
+    if (!res.ok) {
+      if (channelAutoUpdateStatusEl) {
+        channelAutoUpdateStatusEl.textContent = "Unable to load auto-update settings.";
+      }
+      return;
+    }
+    const data = await res.json();
+    if (token !== channelAutoUpdateLoadToken) return;
+    const sub = data?.subscription;
+    if (!sub) return;
+
+    if (channelAutoUpdateCheckbox) channelAutoUpdateCheckbox.checked = Boolean(sub.enabled);
+    if (channelAutoUpdateScheduleSelect && sub.schedule) {
+      channelAutoUpdateScheduleSelect.value = sub.schedule;
+    }
+    setAutoUpdateScheduleVisible(Boolean(sub.enabled));
+    restoreSelectionFromSubscription(sub.selection);
+    if (channelAutoUpdateStatusEl) {
+      channelAutoUpdateStatusEl.textContent = formatAutoUpdateStatus(sub);
+    }
+  } catch {
+    if (channelAutoUpdateStatusEl) {
+      channelAutoUpdateStatusEl.textContent = "Unable to load auto-update settings.";
+    }
+  }
+}
+
+function scheduleChannelAutoUpdateLoad() {
+  if (channelAutoUpdateUrlTimer) clearTimeout(channelAutoUpdateUrlTimer);
+  channelAutoUpdateUrlTimer = setTimeout(() => {
+    void loadChannelAutoUpdateState();
+  }, 300);
+}
+
+function buildAutoUpdateSelectionSnapshot() {
+  const selection = snapshotChannelSelection({
+    limitInput: channelLimitInput,
+    skipFirstInput: channelSkipFirstInput,
+    skipLastInput: channelSkipLastInput,
+    rangesInput: channelRangesInput,
+    onlyMissingCheckbox: channelOnlyMissingCheckbox,
+    missingTranscriptsCheckbox: channelMissingTranscriptsCheckbox,
+    excludedVideoIds: channelExcludedVideoIds
+  });
+
+  // Persist only manual exclusions. In-library auto-exclusions from the picker
+  // would otherwise block re-download after a file is deleted from Streamstein.
+  if (selection.onlyMissing && !selection.missingTranscripts) {
+    selection.excludedVideoIds = selection.excludedVideoIds.filter((id) => {
+      const video = cachedChannelVideos.find((v) => v.id === id);
+      if (!video) return true;
+      return !isVideoAlreadyDownloaded(video);
+    });
+  }
+
+  return selection;
+}
+
+function getCachedChannelVideosForAutoUpdate() {
+  const channelUrl = getChannelUrlForAutoUpdate();
+  if (!channelUrl || !cachedChannelVideos.length) return null;
+  if (liveChannelCollect.url && sameChannelRoot(liveChannelCollect.url, channelUrl)) {
+    return cachedChannelVideos;
+  }
+  const rawInput = channelUrlInput?.value?.trim?.() || "";
+  if (rawInput && sameChannelRoot(rawInput, channelUrl)) {
+    return cachedChannelVideos;
+  }
+  return null;
+}
+
+async function saveChannelAutoUpdateSubscription({ enabled, silent = false } = {}) {
+  const channelUrl = getChannelUrlForAutoUpdate();
+  if (!channelUrl) return false;
+  if (!(await requireStreamsteinBackend())) return false;
+
+  const channelKey = currentChannelAutoUpdateKey || computeChannelKey(channelUrl);
+  currentChannelAutoUpdateKey = channelKey;
+  const selection = buildAutoUpdateSelectionSnapshot();
+
+  const res = await fetchBridge("/api/channel/auto-update", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channelKey,
+      channelUrl,
+      channelName: deriveChannelHint(channelUrl),
+      enabled: enabled !== undefined ? enabled : Boolean(channelAutoUpdateCheckbox?.checked),
+      schedule: channelAutoUpdateScheduleSelect?.value || "daily",
+      selection
+    })
+  });
+
+  if (!res?.ok) {
+    if (channelAutoUpdateStatusEl) {
+      channelAutoUpdateStatusEl.textContent = "Failed to save auto-update settings.";
+    }
+    return false;
+  }
+
+  const data = await res.json();
+  if (!silent && channelAutoUpdateStatusEl) {
+    channelAutoUpdateStatusEl.textContent = formatAutoUpdateStatus(data.subscription);
+  }
+  return true;
+}
+
+async function disableChannelAutoUpdate() {
+  const channelKey = currentChannelAutoUpdateKey;
+  if (!channelKey) return;
+  const res = await fetchBridge(`/api/channel/auto-update/${encodeURIComponent(channelKey)}`, {
+    method: "DELETE"
+  });
+  if (!res?.ok) {
+    if (channelAutoUpdateStatusEl) {
+      channelAutoUpdateStatusEl.textContent = "Failed to disable auto-update.";
+    }
+    return;
+  }
+  if (channelAutoUpdateStatusEl) {
+    channelAutoUpdateStatusEl.textContent = "Auto-update is off for this channel.";
+  }
+}
+
+async function runChannelAutoUpdateNow() {
+  const channelUrl = getChannelUrlForAutoUpdate();
+  if (!channelUrl) {
+    showAutoUpdateStatusFlash("⚠️ Enter a channel URL first.", "error");
+    return;
+  }
+  if (!(await requireStreamsteinBackend())) return;
+
+  const channelKey = currentChannelAutoUpdateKey || computeChannelKey(channelUrl);
+  currentChannelAutoUpdateKey = channelKey;
+
+  channelAutoUpdateRunNowBtn?.classList.add("is-running");
+  showAutoUpdateStatusFlash("⏳ Checking channel for new videos…", "info", 120000);
+
+  try {
+    if (cachedChannelVideos.length) {
+      await refreshGlobalLibrarySummary({ forceRescan: true });
+      await fetchChannelLibraryMatches(cachedChannelVideos);
+    }
+
+    const saved = await saveChannelAutoUpdateSubscription({
+      enabled: Boolean(channelAutoUpdateCheckbox?.checked),
+      silent: true
+    });
+    if (!saved) {
+      showAutoUpdateStatusFlash("⚠️ Could not save channel settings.", "error");
+      return;
+    }
+
+    const runPayload = {};
+    const snapshotVideos = getCachedChannelVideosForAutoUpdate();
+    if (snapshotVideos?.length) {
+      runPayload.videos = snapshotVideos.map((video) => ({
+        id: video.id,
+        videoId: video.id,
+        title: video.title || "",
+        normalizedTitle: video.normalizedTitle || normalizeTitleKey(video.title || "")
+      }));
+    }
+
+    const res = await fetchBridge(
+      `/api/channel/auto-update/${encodeURIComponent(channelKey)}/run`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(runPayload)
+      }
+    );
+
+    if (!res) {
+      showAutoUpdateStatusFlash("⚠️ Streamstein backend unavailable.", "error");
+      return;
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      const errText = data.error || data.message || "Check failed.";
+      showAutoUpdateStatusFlash(`❌ ${errText}`, "error");
+      return;
+    }
+
+    const downloaded = Number(data.downloaded) || 0;
+    const missingFound = Number(data.missingFound) || 0;
+    const haveVideo = Number(data.haveVideo);
+    const channelTotal = Number(data.channelTotal);
+
+    if (downloaded > 0) {
+      showAutoUpdateStatusFlash(
+        `✅ Downloaded ${downloaded} missing video${downloaded === 1 ? "" : "s"}!`,
+        "success"
+      );
+      if (cachedChannelVideos.length) {
+        await fetchChannelLibraryMatches(cachedChannelVideos);
+      }
+    } else if (missingFound > 0) {
+      showAutoUpdateStatusFlash(
+        `✅ Found ${missingFound} missing video${missingFound === 1 ? "" : "s"} in queue.`,
+        "success"
+      );
+    } else if (
+      Number.isFinite(haveVideo) &&
+      Number.isFinite(channelTotal) &&
+      channelTotal > 0
+    ) {
+      showAutoUpdateStatusFlash(
+        `✓ Up to date (${haveVideo}/${channelTotal} videos in library).`,
+        "success"
+      );
+    } else {
+      showAutoUpdateStatusFlash("✓ Up to date — no new videos to download.", "success");
+    }
+  } catch (err) {
+    showAutoUpdateStatusFlash(`❌ ${err?.message || "Check failed."}`, "error");
+  } finally {
+    channelAutoUpdateRunNowBtn?.classList.remove("is-running");
+  }
+}
+
 setLibraryControlsEnabled(false);
 bindChannelSelectionEditorInputs();
 
@@ -2447,7 +2871,31 @@ useCurrentChannelBtn.addEventListener("click", () => {
       ? "Using active tab as channel Videos URL."
       : "Using active tab as channel URL candidate.";
     setStatusChannel(okText, "success");
+    scheduleChannelAutoUpdateLoad();
   });
+});
+
+channelAutoUpdateCheckbox?.addEventListener("change", async () => {
+  const enabled = Boolean(channelAutoUpdateCheckbox.checked);
+  setAutoUpdateScheduleVisible(enabled);
+  if (enabled) {
+    const ok = await saveChannelAutoUpdateSubscription({ enabled: true });
+    if (!ok) {
+      channelAutoUpdateCheckbox.checked = false;
+      setAutoUpdateScheduleVisible(false);
+    }
+  } else {
+    await disableChannelAutoUpdate();
+  }
+});
+
+channelAutoUpdateScheduleSelect?.addEventListener("change", async () => {
+  if (!channelAutoUpdateCheckbox?.checked) return;
+  await saveChannelAutoUpdateSubscription({ enabled: true });
+});
+
+channelAutoUpdateRunNowBtn?.addEventListener("click", () => {
+  void runChannelAutoUpdateNow();
 });
 
 channelOnlyMissingCheckbox?.addEventListener("change", () => {
@@ -2831,6 +3279,7 @@ channelUrlInput.addEventListener("input", () => {
   const url = channelUrlInput.value.trim();
   if (!url) {
     setStatusChannel("", "info");
+    scheduleChannelAutoUpdateLoad();
     return;
   }
   if (isYouTubeChannelVideosUrl(url) || isYouTubeChannelCandidateUrl(url)) {
@@ -2838,6 +3287,7 @@ channelUrlInput.addEventListener("input", () => {
       ? "Channel Videos URL detected."
       : "Channel URL detected (will use /videos).";
     setStatusChannel(okText, "success");
+    scheduleChannelAutoUpdateLoad();
   } else {
     setStatusChannel("This does not look like a channel URL.", "error");
   }
