@@ -97,6 +97,7 @@ const youtubeLibraryIpc = require("./src/ipc/youtubeLibrary");
 const youtubeCatalogEnrichIpc = require("./src/ipc/youtubeCatalogEnrich");
 const toolPaths = require("./src/ipc/toolPaths");
 const ytBridge = require("./src/ipc/ytBridge");
+const ytDlpUpdater = require("./src/ipc/ytDlpUpdateService.cjs");
 const libraryPathsMain = require("./src/ipc/libraryPathsMain");
 toolPaths.bindElectronApp(app);
 // Local playback uses loopback HTTP (started in app.whenReady)
@@ -170,6 +171,18 @@ playerSession.registerPlayerSessionDeps({
   blockedHosts: BLOCKED_HOSTS,
 });
 streamResolver.bindPlayerSession(playerSession);
+// JIT stream resolve for queued series downloads (fresh m3u8 at spawn time)
+downloadsIpc.setResolveStreamForDownload((ctx) =>
+  streamResolver.resolveStreamWithFallback(ctx || {}),
+);
+// Seed default Chrome Profile 69 cookies for movie/TV downloads
+try {
+  const downloadAuth = require("./src/ipc/downloadAuth");
+  const prefs = downloadAuth.loadPrefs();
+  if (!prefs.cookiesFromBrowser) {
+    downloadAuth.savePrefs(downloadAuth.DEFAULT_PREFS);
+  }
+} catch {}
 
 function ensurePlayerSessions() {
   playerSession.ensurePlayerSessions();
@@ -301,6 +314,9 @@ youtubeLibraryIpc.register();
 youtubeCatalogEnrichIpc.register(getMainWindow);
 toolPaths.register(ipcMain);
 ytBridge.register(ipcMain);
+ytDlpUpdater.register({
+  onUpdated: () => ytBridge.syncBridgeToolPaths(),
+});
 libraryPathsMain.register(ipcMain);
 seriesDownloadIpc.register(getMainWindow, {
   cancelQueuedBySeriesBatch: (batchId) =>
@@ -580,12 +596,24 @@ if (!gotTheLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    localMediaIpc.ensureProtocolHandler();
+    _bench("app ready");
+    createWindow();
+
+    const ytDlpUpdate = await ytDlpUpdater.runStartupUpdate();
+    if (ytDlpUpdate.updated) {
+      console.log(
+        `[yt-dlp] Updated to ${ytDlpUpdate.currentVersion} before starting the YouTube backend`,
+      );
+    } else if (ytDlpUpdate.error) {
+      console.warn(`[yt-dlp] Startup update skipped: ${ytDlpUpdate.error}`);
+    }
+
     const tools = toolPaths.publishBundledEnv();
     _bench(
       `tools bundled=${tools.bundledBinDir ? "yes" : "no"} ffmpeg=${tools.ffmpeg ? "ok" : "missing"} yt-dlp=${tools.ytDlp ? "ok" : "missing"}`,
     );
-    localMediaIpc.ensureProtocolHandler();
     if (ytBridge.shouldStartOnLaunch()) {
       ytBridge.start().then((bridge) => {
         _bench(
@@ -595,8 +623,6 @@ if (!gotTheLock) {
     } else {
       _bench("yt-bridge=skipped (start on launch disabled)");
     }
-    _bench("app ready");
-    createWindow();
   });
   app.on("before-quit", () => {
     ytBridge.stop();

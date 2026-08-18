@@ -83,6 +83,13 @@ contextBridge.exposeInMainWorld("electron", {
   getYtBridgeStartup: () => ipcRenderer.invoke("get-yt-bridge-startup"),
   setYtBridgeStartup: (enabled) =>
     ipcRenderer.invoke("set-yt-bridge-startup", enabled),
+  getYtDlpUpdateStatus: () => ipcRenderer.invoke("get-ytdlp-update-status"),
+  setYtDlpAutoUpdate: (enabled) =>
+    ipcRenderer.invoke("set-ytdlp-auto-update", enabled),
+  getDownloadAuthPrefs: () => ipcRenderer.invoke("get-download-auth-prefs"),
+  setDownloadAuthPrefs: (prefs) =>
+    ipcRenderer.invoke("set-download-auth-prefs", prefs),
+  checkYtDlpUpdate: () => ipcRenderer.invoke("check-ytdlp-update"),
   getDefaultDownloaderFolder: () =>
     ipcRenderer.invoke("get-default-downloader-folder"),
   openPathAtTime: (filePath, seconds, subtitlePaths) =>
