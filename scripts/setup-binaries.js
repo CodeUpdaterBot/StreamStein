@@ -165,7 +165,7 @@ async function main() {
 
   console.log(`
 Movie/TV downloader (vid-dl):
-  npm run build:vid-dl     # builds from vid-dl-cli-only-2.2.1/ via PyInstaller
+  npm run build:vid-dl     # builds from vid-dl-cli-only-v.2.3.2/ via PyInstaller
 
 YouTube extension bridge deps (bundled in installer):
   npm run setup-bridge     # run via prepare-release before packaging

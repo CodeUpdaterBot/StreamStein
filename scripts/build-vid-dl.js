@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build vid-dl from vendored vid-dl-cli-only-2.2.1/ (PyInstaller onedir)
+ * Build vid-dl from vendored vid-dl-cli-only-v.2.3.2/ (PyInstaller onedir)
  * and copy to resources/bin/<platform>-<arch>/vid-dl/
  *
  *   npm run build:vid-dl
@@ -14,7 +14,7 @@ const { spawnSync } = require("child_process");
 const toolPaths = require("../src/ipc/toolPaths");
 
 const ROOT = path.resolve(__dirname, "..");
-const DEFAULT_SRC = path.join(ROOT, "vid-dl-cli-only-2.2.1");
+const DEFAULT_SRC = path.join(ROOT, "vid-dl-cli-only-v.2.3.2");
 
 function parseArgs() {
   return {
@@ -153,6 +153,8 @@ async function main() {
     "--onedir",
     "--clean",
     "--noupx",
+    "--collect-all",
+    "curl_cffi",
     "--exclude-module",
     "pycryptodomex.selftest",
     "--exclude-module",
