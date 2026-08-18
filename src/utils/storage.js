@@ -120,6 +120,7 @@ export const STORAGE_KEYS = {
   NOTIFY_DOWNLOAD_COMPLETE: "notifyDownloadComplete",
   NOTIFY_NEW_EPISODE: "notifyNewEpisode",
   YT_BRIDGE_STARTUP: "ytBridgeStartup",
+  YT_DLP_AUTO_UPDATE: "ytDlpAutoUpdate",
   TMDB_LANG: "tmdbLang",
   INTRO_SKIP_MODE: "introSkipMode",
   DL_SORT_BY: "dlSortBy",
@@ -137,6 +138,18 @@ export const STORAGE_KEYS = {
 };
 
 export const getApiKey = () => storage.get(STORAGE_KEYS.API_KEY);
+
+/** Drop saved vid-dl paths that still point at the retired 2.2.1 tree. */
+export function getDownloaderFolder() {
+  const stored =
+    storage.get(STORAGE_KEYS.DOWNLOADER_FOLDER) ||
+    storage.get("downloaderFolder") ||
+    "";
+  if (typeof stored !== "string" || !stored) return "";
+  if (!stored.includes("vid-dl-cli-only-2.2.1")) return stored;
+  storage.set(STORAGE_KEYS.DOWNLOADER_FOLDER, "");
+  return "";
+}
 
 export const isElectron =
   typeof window !== "undefined" && !!window.electron;

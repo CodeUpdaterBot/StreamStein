@@ -101,6 +101,31 @@ function formatDurationSeconds(seconds) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+/** Best available YouTube watch URL for a catalog record. */
+export function getYoutubeWatchUrl(record) {
+  if (!record) return null;
+  if (record.watchUrl) return record.watchUrl;
+  if (record.shortUrl) return record.shortUrl;
+  if (record.videoId) {
+    return `https://www.youtube.com/watch?v=${encodeURIComponent(record.videoId)}`;
+  }
+  return null;
+}
+
+export function getYoutubeChannelLabel(record) {
+  return (
+    record?.channelName ||
+    record?.libraryChannel ||
+    record?.youtubeChannelName ||
+    "Unknown channel"
+  );
+}
+
+export function getMissingOnDiskVideos(videos) {
+  if (!Array.isArray(videos)) return [];
+  return videos.filter((v) => v && v.fileExists === false);
+}
+
 export function formatVideoMeta(record) {
   const parts = [];
   if (record.size != null) parts.push(formatBytes(record.size));
