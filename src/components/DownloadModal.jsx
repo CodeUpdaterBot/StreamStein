@@ -371,6 +371,8 @@ export function SubtitleBrowser({
 export default function DownloadModal({
   onClose,
   m3u8Url,
+  streamHeaders = null,
+  sourceId = null,
   subtitles = [],
   mediaName,
   downloaderFolder,
@@ -561,6 +563,8 @@ export default function DownloadModal({
     const result = await window.electron.runDownload({
       token: downloader.token,
       m3u8Url,
+      streamHeaders: streamHeaders || undefined,
+      sourceId: sourceId || undefined,
       subtitles: resolvedSubs,
       name: mediaName,
       downloadPath,

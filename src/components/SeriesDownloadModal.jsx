@@ -4,7 +4,7 @@ import { storage, STORAGE_KEYS } from "../utils/storage";
 import { imgUrl } from "../utils/api";
 
 const DEFAULT_SOURCES = ["videasy", "vidsrc"];
-const SOURCE_ORDER = ["videasy", "vidsrc", "2embed"];
+const SOURCE_ORDER = ["videasy", "vidsrc", "vidking", "2embed"];
 
 function sortSeriesSources(list) {
   return [...list].sort(
