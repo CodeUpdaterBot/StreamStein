@@ -14,6 +14,7 @@ import LocalVideoPlayer from "../components/LocalVideoPlayer";
 import CastPickerModal from "../components/CastPickerModal";
 import CastMiniController from "../components/CastMiniController";
 import YoutubeDeleteConfirmModal from "../components/YoutubeDeleteConfirmModal";
+import YoutubeMissingOnDiskModal from "../components/YoutubeMissingOnDiskModal";
 import YoutubeEmptyState from "../components/YoutubeEmptyState";
 import { storage, isElectron, STORAGE_KEYS } from "../utils/storage";
 import {
@@ -29,6 +30,7 @@ import {
   getYoutubeThumbnail,
   needsYoutubeMetadataSync,
   formatVideoMeta,
+  getMissingOnDiskVideos,
   youtubeProgressKey,
 } from "../utils/youtubeLibrary";
 import {
@@ -515,6 +517,7 @@ export default function YouTubePage({
   const [pendingDeleteVideo, setPendingDeleteVideo] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [deleteSkipConfirm, setDeleteSkipConfirm] = useState(false);
+  const [missingModalOpen, setMissingModalOpen] = useState(false);
 
   useEffect(() => {
     storage.set(STORAGE_KEYS.YOUTUBE_SORT_BY, sortBy);
@@ -750,6 +753,10 @@ export default function YouTubePage({
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape") {
+        if (missingModalOpen) {
+          setMissingModalOpen(false);
+          return;
+        }
         if (pendingDeleteVideo && !deletingId) {
           setPendingDeleteVideo(null);
           setDeleteSkipConfirm(false);
@@ -768,7 +775,13 @@ export default function YouTubePage({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedVideo, restoreLibraryScroll, pendingDeleteVideo, deletingId]);
+  }, [
+    missingModalOpen,
+    selectedVideo,
+    restoreLibraryScroll,
+    pendingDeleteVideo,
+    deletingId,
+  ]);
 
   useEffect(() => {
     if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -785,6 +798,10 @@ export default function YouTubePage({
   const channelGroups = useMemo(
     () => groupYoutubeByChannel(sorted),
     [sorted],
+  );
+  const missingOnDiskVideos = useMemo(
+    () => getMissingOnDiskVideos(videos),
+    [videos],
   );
 
   const castLoadArgs = useMemo(() => {
@@ -970,21 +987,39 @@ export default function YouTubePage({
         )}
       </div>
       <div className="dl-page__subtitle">
-        {loading
-          ? "Loading library…"
-          : showLibrarySetup
-            ? "No videos in your library yet"
-            : catalogMeta?.catalogExists
-              ? `${catalogMeta.totalVideos} video${catalogMeta.totalVideos !== 1 ? "s" : ""}${
-                  catalogMeta.missingFiles > 0
-                    ? ` · ${catalogMeta.missingFiles} missing on disk`
-                    : ""
-                }`
-              : "Library unavailable"}
-        {catalogMeta?.updatedAt && !loading && !showLibrarySetup
-          ? ` · Updated ${new Date(catalogMeta.updatedAt).toLocaleString()}`
-          : ""}
+        {loading ? (
+          "Loading library…"
+        ) : showLibrarySetup ? (
+          "No videos in your library yet"
+        ) : catalogMeta?.catalogExists ? (
+          <>
+            {catalogMeta.totalVideos} video
+            {catalogMeta.totalVideos !== 1 ? "s" : ""}
+            {catalogMeta.missingFiles > 0 && (
+              <button
+                type="button"
+                className="yt-page__missing-link"
+                onClick={() => setMissingModalOpen(true)}
+                title="View catalog entries whose files are missing from disk"
+              >
+                {" · "}
+                {catalogMeta.missingFiles} missing on disk
+              </button>
+            )}
+            {catalogMeta.updatedAt
+              ? ` · Updated ${new Date(catalogMeta.updatedAt).toLocaleString()}`
+              : ""}
+          </>
+        ) : (
+          "Library unavailable"
+        )}
       </div>
+      {missingModalOpen && (
+        <YoutubeMissingOnDiskModal
+          videos={missingOnDiskVideos}
+          onClose={() => setMissingModalOpen(false)}
+        />
+      )}
       {scanNotice && !loading && (
         <p className="dl-page__subtitle yt-page__scan-notice" role="status">
           {scanNotice}

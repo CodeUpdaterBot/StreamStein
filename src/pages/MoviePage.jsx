@@ -52,7 +52,7 @@ import MediaCard from "../components/MediaCard";
 import LocalVideoPlayer from "../components/LocalVideoPlayer";
 import PlaybackModeToggle from "../components/PlaybackModeToggle";
 import { useMediaPlaybackSource } from "../hooks/useMediaPlaybackSource";
-import { storage, STORAGE_KEYS } from "../utils/storage";
+import { storage, STORAGE_KEYS, getDownloaderFolder } from "../utils/storage";
 import {
   deliverM3u8ToBatch,
   isBatchCaptureActive,
@@ -88,6 +88,7 @@ export default function MoviePage({
   const [trailerKey, setTrailerKey] = useState(null);
   const [showTrailer, setShowTrailer] = useState(false);
   const [m3u8Url, setM3u8Url] = useState(null);
+  const [streamHeaders, setStreamHeaders] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const [playerSource, setPlayerSource] = useState(
     () => storage.get("playerSource") || NON_ANIME_DEFAULT_SOURCE,
@@ -144,7 +145,7 @@ export default function MoviePage({
     [item.id, details],
   );
   const [downloaderFolder, setDownloaderFolder] = useState(
-    () => storage.get("downloaderFolder") || "",
+    () => getDownloaderFolder(),
   );
 
   // Blocked request stats
@@ -444,9 +445,14 @@ export default function MoviePage({
       const url = typeof payload === "string" ? payload : payload?.url;
       const webContentsId =
         typeof payload === "object" ? payload?.webContentsId : undefined;
+      const requestHeaders =
+        typeof payload === "object" ? payload?.requestHeaders : undefined;
       if (deliverM3u8ToBatch(url, webContentsId)) return;
       if (isBatchCaptureActive()) return;
       setM3u8Url((prev) => (prev !== url ? url : prev));
+      if (requestHeaders && Object.keys(requestHeaders).length) {
+        setStreamHeaders(requestHeaders);
+      }
     });
     return () => window.electron.offM3u8Found(handler);
   }, []);
@@ -1442,6 +1448,8 @@ export default function MoviePage({
         <DownloadModal
           onClose={() => setShowDownload(false)}
           m3u8Url={m3u8Url}
+          streamHeaders={streamHeaders}
+          sourceId={playerSource}
           subtitles={interceptedSubs}
           mediaName={mediaName}
           downloaderFolder={downloaderFolder}

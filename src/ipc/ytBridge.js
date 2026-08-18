@@ -179,7 +179,16 @@ function postBridgeConfig(body) {
           responseBody += chunk;
         });
         res.on("end", () => {
-          resolve(res.statusCode === 200);
+          if (res.statusCode !== 200) {
+            resolve(false);
+            return;
+          }
+          try {
+            const parsed = JSON.parse(responseBody || "{}");
+            resolve(parsed.ok !== false);
+          } catch {
+            resolve(false);
+          }
         });
       },
     );

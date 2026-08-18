@@ -2737,6 +2737,8 @@ const SECTION_NAV = [
     icon: "▶",
     keywords: [
       "youtube",
+      "yt-dlp",
+      "auto update",
       "extension",
       "chrome",
       "downloader",
@@ -3501,6 +3503,12 @@ export default function SettingsPage({
     const stored = storage.get(STORAGE_KEYS.YT_BRIDGE_STARTUP);
     return stored === null || stored === undefined ? true : !!stored;
   });
+  const [ytDlpAutoUpdate, setYtDlpAutoUpdate] = useState(() => {
+    const stored = storage.get(STORAGE_KEYS.YT_DLP_AUTO_UPDATE);
+    return stored === null || stored === undefined ? true : !!stored;
+  });
+  const [ytDlpUpdateStatus, setYtDlpUpdateStatus] = useState(null);
+  const [ytDlpChecking, setYtDlpChecking] = useState(false);
   const [extensionRoot, setExtensionRoot] = useState("");
   const [extensionCopied, setExtensionCopied] = useState(false);
   const [downloadMaxConcurrent, setDownloadMaxConcurrent] = useState(() => {
@@ -3508,6 +3516,12 @@ export default function SettingsPage({
     return v == null ? 3 : Math.max(1, Math.min(20, Number(v) || 3));
   });
   const [downloadLimitSaved, setDownloadLimitSaved] = useState(false);
+  const [downloadUseBrowserCookies, setDownloadUseBrowserCookies] =
+    useState(true);
+  const [downloadCookiesFromBrowser, setDownloadCookiesFromBrowser] = useState(
+    "chrome:Profile 69",
+  );
+  const [downloadAuthSaved, setDownloadAuthSaved] = useState(false);
   const [watchedThreshold, setWatchedThreshold] = useState(
     () => storage.get(STORAGE_KEYS.WATCHED_THRESHOLD) ?? 20,
   );
@@ -3688,10 +3702,12 @@ export default function SettingsPage({
     let mounted = true;
     (async () => {
       try {
-        const [tools, bridge, startup] = await Promise.all([
+        const [tools, bridge, startup, ytDlpStatus, dlAuth] = await Promise.all([
           window.electron.getBundledTools(),
           window.electron.getYtBridgeStatus?.(),
           window.electron.getYtBridgeStartup?.(),
+          window.electron.getYtDlpUpdateStatus?.(),
+          window.electron.getDownloadAuthPrefs?.(),
         ]);
         if (!mounted) return;
         if (tools?.extensionRoot) setExtensionRoot(tools.extensionRoot);
@@ -3699,6 +3715,20 @@ export default function SettingsPage({
         if (startup?.ok) {
           setYtBridgeStartup(!!startup.startOnLaunch);
           storage.set(STORAGE_KEYS.YT_BRIDGE_STARTUP, !!startup.startOnLaunch);
+        }
+        if (ytDlpStatus) {
+          setYtDlpUpdateStatus(ytDlpStatus);
+          setYtDlpAutoUpdate(ytDlpStatus.autoUpdate !== false);
+          storage.set(
+            STORAGE_KEYS.YT_DLP_AUTO_UPDATE,
+            ytDlpStatus.autoUpdate !== false,
+          );
+        }
+        if (dlAuth?.ok) {
+          setDownloadUseBrowserCookies(dlAuth.useBrowserCookies !== false);
+          setDownloadCookiesFromBrowser(
+            dlAuth.cookiesFromBrowser || "chrome:Profile 69",
+          );
         }
       } catch {
         // ignore
@@ -3742,6 +3772,50 @@ export default function SettingsPage({
       setYtBridgeStartup(!enabled);
       storage.set(STORAGE_KEYS.YT_BRIDGE_STARTUP, !enabled);
       onShowToast?.("Could not update YouTube backend setting");
+    }
+  };
+
+  const handleYtDlpAutoUpdateToggle = async (enabled) => {
+    setYtDlpAutoUpdate(enabled);
+    storage.set(STORAGE_KEYS.YT_DLP_AUTO_UPDATE, enabled);
+    try {
+      const result = await window.electron?.setYtDlpAutoUpdate?.(enabled);
+      if (result) setYtDlpUpdateStatus(result);
+      onShowToast?.(
+        enabled
+          ? "yt-dlp will be checked for updates when Streamstein starts"
+          : "Automatic yt-dlp updates disabled",
+        { variant: "success" },
+      );
+    } catch {
+      setYtDlpAutoUpdate(!enabled);
+      storage.set(STORAGE_KEYS.YT_DLP_AUTO_UPDATE, !enabled);
+      onShowToast?.("Could not update the yt-dlp setting");
+    }
+  };
+
+  const handleCheckYtDlpUpdate = async () => {
+    if (!window.electron?.checkYtDlpUpdate || ytDlpChecking) return;
+    setYtDlpChecking(true);
+    try {
+      const result = await window.electron.checkYtDlpUpdate();
+      setYtDlpUpdateStatus(result);
+      if (result?.updated) {
+        onShowToast?.(`yt-dlp updated to ${result.currentVersion}`, {
+          variant: "success",
+        });
+      } else if (result?.ok) {
+        onShowToast?.(
+          `yt-dlp ${result.currentVersion || ""} is up to date`.trim(),
+          { variant: "success" },
+        );
+      } else {
+        onShowToast?.(result?.error || "Could not update yt-dlp");
+      }
+    } catch {
+      onShowToast?.("Could not check for yt-dlp updates");
+    } finally {
+      setYtDlpChecking(false);
     }
   };
 
@@ -3790,6 +3864,20 @@ export default function SettingsPage({
     }
     setDownloadLimitSaved(true);
     setTimeout(() => setDownloadLimitSaved(false), 2000);
+  };
+
+  const handleSaveDownloadAuth = async () => {
+    const profile = String(downloadCookiesFromBrowser || "")
+      .trim() || "chrome:Profile 69";
+    setDownloadCookiesFromBrowser(profile);
+    if (window.electron?.setDownloadAuthPrefs) {
+      await window.electron.setDownloadAuthPrefs({
+        useBrowserCookies: !!downloadUseBrowserCookies,
+        cookiesFromBrowser: profile,
+      });
+    }
+    setDownloadAuthSaved(true);
+    setTimeout(() => setDownloadAuthSaved(false), 2500);
   };
 
   const handleSaveThreshold = () => {
@@ -4461,6 +4549,102 @@ export default function SettingsPage({
               </div>
             )}
           </div>
+
+          <div className="settings-panel" style={{ marginBottom: 40 }}>
+            <div className="settings-section-title">
+              Browser cookies for movie/TV downloads
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: "var(--text3)",
+                marginBottom: 16,
+                lineHeight: 1.6,
+              }}
+            >
+              Stream CDNs often return HTTP 403 to anonymous downloaders. When
+              enabled, Streamstein uses your real Chrome profile cookies (plus
+              the Cookie/Referer from the in-app player) so yt-dlp looks like
+              your browser. Default profile:{" "}
+              <code>chrome:Profile 69</code>.
+              <br />
+              <br />
+              If Chrome is open and cookie access fails, fully close Chrome
+              once, or launch Chrome with{" "}
+              <code>--disable-features=LockProfileCookieDatabase</code>. The
+              app still falls back to cookies from the in-app player session.
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 14,
+                flexWrap: "wrap",
+              }}
+            >
+              <Toggle
+                value={downloadUseBrowserCookies}
+                onChange={setDownloadUseBrowserCookies}
+                title={
+                  downloadUseBrowserCookies
+                    ? "Disable Chrome cookies for downloads"
+                    : "Enable Chrome cookies for downloads"
+                }
+              />
+              <div>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                  }}
+                >
+                  Use Chrome cookies
+                </div>
+                <div
+                  style={{
+                    marginTop: 3,
+                    fontSize: 12,
+                    color: "var(--text3)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Passes{" "}
+                  <code>--cookies-from-browser</code> into the movie/TV
+                  downloader
+                </div>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                className="apikey-input"
+                style={{ flex: 1, minWidth: 260, marginBottom: 0 }}
+                placeholder='chrome:Profile 69'
+                value={downloadCookiesFromBrowser}
+                onChange={(e) => setDownloadCookiesFromBrowser(e.target.value)}
+                disabled={!downloadUseBrowserCookies}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveDownloadAuth}
+              >
+                Save
+              </button>
+            </div>
+            {downloadAuthSaved && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#48c774" }}>
+                ✓ Saved — applies to the next movie/TV download
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════ */}
@@ -4574,6 +4758,91 @@ export default function SettingsPage({
               {ytBridgeStartup
                 ? "Streamstein starts the download backend automatically when the app runs (port 8789). Load the bundled Chrome extension once — then downloads from YouTube in your browser use Streamstein as the server."
                 : "The download backend is off until you restart it below or turn this back on. The Chrome extension will not work until the backend is running."}
+            </div>
+            <div
+              style={{
+                padding: 14,
+                marginBottom: 16,
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <Toggle
+                    value={ytDlpAutoUpdate}
+                    onChange={handleYtDlpAutoUpdateToggle}
+                    title={
+                      ytDlpAutoUpdate
+                        ? "Disable automatic yt-dlp updates"
+                        : "Enable automatic yt-dlp updates"
+                    }
+                  />
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "var(--text)",
+                      }}
+                    >
+                      Automatically update yt-dlp
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 12,
+                        color: "var(--text3)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Securely checks the official yt-dlp GitHub release on
+                      startup and verifies its SHA-256 checksum before use.
+                    </div>
+                  </div>
+                </div>
+                {isElectron && window.electron?.checkYtDlpUpdate && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={ytDlpChecking}
+                    onClick={handleCheckYtDlpUpdate}
+                  >
+                    {ytDlpChecking ? "Checking…" : "Check now"}
+                  </button>
+                )}
+              </div>
+              {ytDlpUpdateStatus && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    paddingTop: 12,
+                    borderTop: "1px solid var(--border)",
+                    fontSize: 12,
+                    color: ytDlpUpdateStatus.error
+                      ? "var(--red)"
+                      : "var(--text3)",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {ytDlpUpdateStatus.error
+                    ? `Update check failed: ${ytDlpUpdateStatus.error}`
+                    : `Installed: ${ytDlpUpdateStatus.currentVersion || "unknown"}${
+                        ytDlpUpdateStatus.latestVersion
+                          ? ` · Latest: ${ytDlpUpdateStatus.latestVersion}`
+                          : ""
+                      }${ytDlpUpdateStatus.managed ? " · Managed copy active" : ""}`}
+                </div>
+              )}
             </div>
             {ytBridgeStatus && (
               <div

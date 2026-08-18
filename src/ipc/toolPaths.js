@@ -75,6 +75,16 @@ function getBundledBinDir() {
   return null;
 }
 
+function getManagedYtDlpPath() {
+  if (!_electronApp) return null;
+  return path.join(
+    _electronApp.getPath("userData"),
+    "tools",
+    platformArchKey(),
+    exeName("yt-dlp"),
+  );
+}
+
 function pathExistsOnPath(command) {
   try {
     const r = spawnSync(
@@ -114,6 +124,11 @@ const SYSTEM_FALLBACKS = {
  * @returns {string|null} absolute path or bare command name for PATH
  */
 function resolveTool(tool) {
+  if (tool === "yt-dlp") {
+    const managed = getManagedYtDlpPath();
+    if (managed && fs.existsSync(managed)) return managed;
+  }
+
   const bundledDir = getBundledBinDir();
   if (bundledDir) {
     const bundled = path.join(bundledDir, exeName(tool));
@@ -167,7 +182,7 @@ function resolveVidDlDir() {
     if (fs.existsSync(path.join(nested, "_internal"))) return nested;
   }
 
-  const devBuild = path.join(projectRootFromModule(), "vid-dl-cli-only-2.2.1", "dist", "vid-dl");
+  const devBuild = path.join(projectRootFromModule(), "vid-dl-cli-only-v.2.3.2", "dist", "vid-dl");
   if (fs.existsSync(path.join(devBuild, "_internal"))) return devBuild;
 
   return null;
@@ -233,6 +248,7 @@ module.exports = {
   bindElectronApp,
   platformArchKey,
   getBundledBinDir,
+  getManagedYtDlpPath,
   resolveTool,
   resolveExtensionRoot,
   resolveBridgeRoot,

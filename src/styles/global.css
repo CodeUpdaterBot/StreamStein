@@ -4408,6 +4408,192 @@ kbd {
     color: var(--gold);
 }
 
+.yt-page__missing-link {
+    display: inline;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--gold);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--gold) 45%, transparent);
+    text-underline-offset: 2px;
+    transition:
+        color 0.15s ease,
+        text-decoration-color 0.15s ease;
+}
+
+.yt-page__missing-link:hover {
+    color: #f5d76e;
+    text-decoration-color: color-mix(in srgb, var(--gold) 80%, transparent);
+}
+
+.yt-page__missing-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* Missing-on-disk detail modal (page-level) */
+.yt-missing-modal-overlay {
+    z-index: 100000;
+}
+
+.yt-missing-modal {
+    position: relative;
+    width: min(520px, calc(100vw - 32px));
+    max-height: min(78vh, 640px);
+    padding: 28px 24px 22px;
+    align-items: stretch;
+    gap: 12px;
+}
+
+.yt-missing-modal__icon-ring {
+    color: var(--gold);
+    background: color-mix(in srgb, var(--gold) 12%, transparent);
+    border-color: color-mix(in srgb, var(--gold) 50%, transparent);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--gold) 22%, transparent);
+}
+
+.yt-missing-modal__intro {
+    max-width: none;
+    text-align: left;
+    margin: 0;
+}
+
+.yt-missing-modal__list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    max-height: min(42vh, 360px);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.yt-missing-modal__list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.yt-missing-modal__list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+}
+
+.yt-missing-modal__item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--gold) 22%, var(--border));
+    background: color-mix(in srgb, var(--surface2) 88%, transparent);
+}
+
+.yt-missing-modal__item-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.yt-missing-modal__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.yt-missing-modal__channel {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.yt-missing-modal__link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+    background: color-mix(in srgb, var(--red) 10%, var(--surface));
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        transform 0.1s ease;
+}
+
+.yt-missing-modal__link-btn:hover {
+    background: color-mix(in srgb, var(--red) 18%, var(--surface));
+    border-color: color-mix(in srgb, var(--red) 65%, var(--border));
+    transform: translateY(-1px);
+}
+
+.yt-missing-modal__link-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--red) 55%, transparent);
+    outline-offset: 2px;
+}
+
+.yt-missing-modal__no-link {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text3);
+    font-style: italic;
+    padding-top: 4px;
+}
+
+.yt-missing-modal__actions {
+    margin-top: 4px;
+}
+
+.yt-missing-modal__close {
+    width: 100%;
+}
+
+.yt-missing-modal__dismiss {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text3);
+    cursor: pointer;
+}
+
+.yt-missing-modal__dismiss:hover {
+    background: var(--surface3);
+    color: var(--text);
+}
+
+.yt-missing-modal__dismiss svg {
+    width: 16px;
+    height: 16px;
+}
+
 .yt-empty {
     display: flex;
     justify-content: center;

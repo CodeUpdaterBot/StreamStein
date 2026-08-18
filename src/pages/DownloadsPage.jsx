@@ -9,7 +9,7 @@ import {
   SubtitlesIcon,
   CastIcon,
 } from "../components/Icons";
-import { storage, isElectron, STORAGE_KEYS } from "../utils/storage";
+import { storage, isElectron, STORAGE_KEYS, getDownloaderFolder } from "../utils/storage";
 import { LOCAL_FILES_CHANGED } from "../utils/localLibrary";
 import SubtitleDownloaderModal from "../components/SubtitleDownloaderModal";
 import CastPickerModal from "../components/CastPickerModal";
@@ -390,9 +390,7 @@ export default function DownloadsPage({
   const handleTrashAndRetry = useCallback(
     async (dl) => {
       if (!isElectron || !window.electron?.retryDownload) return;
-      const downloaderFolder =
-        storage.get(STORAGE_KEYS.DOWNLOADER_FOLDER) ||
-        storage.get("downloaderFolder");
+      const downloaderFolder = getDownloaderFolder();
       if (!downloaderFolder) {
         alert(
           "Downloader folder is not set. Configure it on a movie or TV page (Download button), then try again.",

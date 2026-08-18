@@ -8,18 +8,24 @@ const { scheduleEmbedAutomation } = require("./embedAutomation");
 
 const RESOLVE_TIMEOUT_MS = 55000;
 const EARLY_SETTLE_MS = 2200;
-const SOURCE_ORDER_DEFAULT = ["videasy", "vidsrc"];
+// Keep aligned with src/utils/api.js PLAYER_SOURCES (Jun 2026 upstream domain migrations).
+const SOURCE_ORDER_DEFAULT = ["videasy", "vidsrc", "vidking"];
 
 const EMBED_URLS = {
   videasy: {
     tv: (id, season, ep) =>
-      `https://player.videasy.net/tv/${id}/${season}/${ep}`,
-    movie: (id) => `https://player.videasy.net/movie/${id}`,
+      `https://player.videasy.to/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://player.videasy.to/movie/${id}`,
   },
   vidsrc: {
     tv: (id, season, ep) =>
-      `https://vidsrc.to/embed/tv/${id}/${season}/${ep}`,
-    movie: (id) => `https://vidsrc.to/embed/movie/${id}`,
+      `https://vsembed.su/embed/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://vsembed.su/embed/movie/${id}`,
+  },
+  vidking: {
+    tv: (id, season, ep) =>
+      `https://www.vidking.net/embed/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://www.vidking.net/embed/movie/${id}`,
   },
 };
 

@@ -61,7 +61,7 @@ import { connectPreferredAndLoad } from "../utils/castUtils";
 import LocalVideoPlayer from "../components/LocalVideoPlayer";
 import PlaybackModeToggle from "../components/PlaybackModeToggle";
 import { useMediaPlaybackSource } from "../hooks/useMediaPlaybackSource";
-import { storage, STORAGE_KEYS } from "../utils/storage";
+import { storage, STORAGE_KEYS, getDownloaderFolder } from "../utils/storage";
 import { fetchAniSkipTimings } from "../utils/aniSkip";
 import {
   fetchTVRating,
@@ -391,6 +391,7 @@ export default function TVPage({
   const [trailerKey, setTrailerKey] = useState(null);
   const [showTrailer, setShowTrailer] = useState(false);
   const [m3u8Url, setM3u8Url] = useState(null);
+  const [streamHeaders, setStreamHeaders] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const cast = useCast();
   const [showCastPicker, setShowCastPicker] = useState(false);
@@ -465,7 +466,7 @@ export default function TVPage({
   );
 
   const [downloaderFolder, setDownloaderFolder] = useState(
-    () => storage.get("downloaderFolder") || "",
+    () => getDownloaderFolder(),
   );
   const [epMenu, setEpMenu] = useState(null); // { x, y, pk }
 
@@ -734,6 +735,8 @@ export default function TVPage({
       const url = typeof payload === "string" ? payload : payload?.url;
       const webContentsId =
         typeof payload === "object" ? payload?.webContentsId : undefined;
+      const requestHeaders =
+        typeof payload === "object" ? payload?.requestHeaders : undefined;
       const batch = seriesBatchRef.current;
       if (
         batch &&
@@ -742,7 +745,11 @@ export default function TVPage({
         batch.wcId === webContentsId
       ) {
         batch.urls.push(url);
+        if (requestHeaders) batch.streamHeaders = requestHeaders;
         setM3u8Url(url);
+        if (requestHeaders && Object.keys(requestHeaders).length) {
+          setStreamHeaders(requestHeaders);
+        }
         clearTimeout(batch.settleTimer);
         batch.settleTimer = setTimeout(() => {
           batch.resolve(pickBestMediaUrl(batch.urls));
@@ -750,6 +757,9 @@ export default function TVPage({
         return;
       }
       setM3u8Url((prev) => (prev !== url ? url : prev));
+      if (requestHeaders && Object.keys(requestHeaders).length) {
+        setStreamHeaders(requestHeaders);
+      }
     });
     return () => window.electron.offM3u8Found(handler);
   }, []);
@@ -2791,6 +2801,8 @@ export default function TVPage({
         <DownloadModal
           onClose={() => setShowDownload(false)}
           m3u8Url={m3u8Url}
+          streamHeaders={streamHeaders}
+          sourceId={playerSource}
           subtitles={interceptedSubs}
           mediaName={mediaName}
           downloaderFolder={downloaderFolder}

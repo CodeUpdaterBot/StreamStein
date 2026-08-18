@@ -61,6 +61,62 @@ function configurePlayerSessions(deps) {
     "*://*/*.vtt*",
     "*://*/*.vtt",
   ];
+
+  // Capture Cookie/Referer/Origin from the live request that successfully hits the CDN.
+  // onBeforeRequest cannot see request headers; onBeforeSendHeaders can.
+  /** @type {Map<string, { headers: Record<string,string>, at: number }>} */
+  const recentMediaHeaders = new Map();
+
+  const pickRequestHeaders = (requestHeaders) => {
+    const out = {};
+    if (!requestHeaders) return out;
+    for (const [k, v] of Object.entries(requestHeaders)) {
+      const lower = String(k).toLowerCase();
+      if (
+        lower === "cookie" ||
+        lower === "referer" ||
+        lower === "origin" ||
+        lower === "user-agent" ||
+        lower === "authorization"
+      ) {
+        out[k] = Array.isArray(v) ? v.join("; ") : String(v || "");
+      }
+    }
+    return out;
+  };
+
+  playerSession.webRequest.onBeforeSendHeaders(
+    { urls: MEDIA_URLS },
+    (details, callback) => {
+      try {
+        if (details.url?.includes(".m3u8")) {
+          const headers = pickRequestHeaders(details.requestHeaders);
+          recentMediaHeaders.set(details.url, {
+            headers,
+            at: Date.now(),
+          });
+          if (recentMediaHeaders.size > 40) {
+            const oldest = [...recentMediaHeaders.entries()].sort(
+              (a, b) => a[1].at - b[1].at,
+            )[0];
+            if (oldest) recentMediaHeaders.delete(oldest[0]);
+          }
+
+          streamResolver.notifyMediaUrl(details.webContentsId, details.url);
+          const mw = getMainWindow();
+          if (mw && !mw.isDestroyed()) {
+            mw.webContents.send("m3u8-found", {
+              url: details.url,
+              webContentsId: details.webContentsId,
+              requestHeaders: headers,
+            });
+          }
+        }
+      } catch {}
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+
   playerSession.webRequest.onBeforeRequest(
     { urls: [...blockedHosts, ...MEDIA_URLS] },
     (details, callback) => {
@@ -86,27 +142,22 @@ function configurePlayerSessions(deps) {
         }
       } catch {}
 
+      // m3u8 notify happens in onBeforeSendHeaders (has Cookie/Referer).
+      // Still notify resolver for non-m3u8 media used by hidden resolver.
       if (
-        url.includes(".m3u8") ||
-        (streamResolver.isResolverWebContents(details.webContentsId) &&
-          (url.includes(".mp4") || url.includes(".webm")))
+        !url.includes(".m3u8") &&
+        streamResolver.isResolverWebContents(details.webContentsId) &&
+        (url.includes(".mp4") || url.includes(".webm"))
       ) {
         streamResolver.notifyMediaUrl(details.webContentsId, url);
       }
       const mw = getMainWindow();
-      if (mw && !mw.isDestroyed()) {
-        if (url.includes(".m3u8")) {
-          mw.webContents.send("m3u8-found", {
-            url,
-            webContentsId: details.webContentsId,
-          });
-        } else if (url.includes(".vtt")) {
-          const { extractSubtitleLang } = require("./subtitles");
-          mw.webContents.send("subtitle-found", {
-            url,
-            lang: extractSubtitleLang(url),
-          });
-        }
+      if (mw && !mw.isDestroyed() && url.includes(".vtt")) {
+        const { extractSubtitleLang } = require("./subtitles");
+        mw.webContents.send("subtitle-found", {
+          url,
+          lang: extractSubtitleLang(url),
+        });
       }
       callback({});
     },

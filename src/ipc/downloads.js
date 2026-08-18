@@ -11,6 +11,8 @@ const https = require("https");
 const http = require("http");
 const os = require("os");
 const toolPaths = require("./toolPaths");
+const downloadAuth = require("./downloadAuth");
+const hlsSessionDownload = require("./hlsSessionDownload");
 
 // ── Download store ────────────────────────────────────────────────────────────
 
@@ -115,10 +117,14 @@ async function drainDownloadQueueAsync() {
         m3u8Url = resolved.url;
         if (idx !== -1) {
           downloads[idx].m3u8Url = m3u8Url;
+          if (resolved.sourceId) {
+            downloads[idx].sourceId = resolved.sourceId;
+            job.sourceId = resolved.sourceId;
+          }
           try {
             fs.appendFileSync(
               downloads[idx].logPath,
-              `Resolved: ${new Date().toISOString()}\nURL: ${m3u8Url}\n${"─".repeat(60)}\n`,
+              `Resolved: ${new Date().toISOString()}\nURL: ${m3u8Url}\nSource: ${resolved.sourceId || "unknown"}\n${"─".repeat(60)}\n`,
               "utf8",
             );
           } catch {}
@@ -147,12 +153,14 @@ async function drainDownloadQueueAsync() {
         lastMessage: next.lastMessage,
         m3u8Url,
       });
-      spawnDownloadProcess(
+      await spawnDownloadProcess(
         next.id,
         job.binaryPath,
         m3u8Url,
         job.name,
         job.downloadPath,
+        job.sourceId,
+        job.streamHeaders,
       );
     }
   } finally {
@@ -679,6 +687,84 @@ function finalizeDownloadOutcome(idx, { exitCode = 0, stderrBuf = "" } = {}) {
   }
 }
 
+function startSubtitleDownloads(id) {
+  const idx = downloads.findIndex((d) => d.id === id);
+  if (idx === -1) return;
+  if (
+    downloads[idx].status !== "completed" ||
+    !downloads[idx].subtitles?.length ||
+    !downloads[idx].filePath
+  ) {
+    return;
+  }
+
+  const videoBase = downloads[idx].filePath.replace(/\.[^.]+$/, "");
+  const langCounter = {};
+  const KNOWN_SUB_EXTS = [".vtt", ".srt", ".ass", ".ssa", ".sub", ".idx"];
+  const subPromises = downloads[idx].subtitles.map(
+    ({ url, lang, name: subName, file_id }) => {
+      const urlClean = url.split("?")[0].split("#")[0];
+      const urlExt = path
+        .extname(urlClean)
+        .toLowerCase()
+        .replace(/[^a-z0-9.]/g, "");
+      const nameExt = subName
+        ? path.extname(subName).toLowerCase().replace(/[^a-z0-9.]/g, "")
+        : "";
+      const subExt = KNOWN_SUB_EXTS.includes(urlExt)
+        ? urlExt
+        : KNOWN_SUB_EXTS.includes(nameExt)
+          ? nameExt
+          : ".srt";
+      const safeLang = (lang || "unknown").replace(/[^a-z0-9_-]/gi, "");
+      const lIdx = langCounter[safeLang] ?? 0;
+      langCounter[safeLang] = lIdx + 1;
+      const suffix = lIdx > 0 ? `.${lIdx}` : "";
+      const subDestPath = `${videoBase}.${safeLang}${suffix}${subExt}`;
+      return downloadSubtitleFile(url, subDestPath).then((ok) =>
+        ok
+          ? {
+              lang: lang || "unknown",
+              path: subDestPath,
+              file_id: file_id || null,
+            }
+          : null,
+      );
+    },
+  );
+  Promise.all(subPromises).then((results) => {
+    const i2 = downloads.findIndex((d) => d.id === id);
+    if (i2 === -1) return;
+    downloads[i2].subtitlePaths = results.filter(Boolean);
+    saveDownloads();
+    sendProgress({
+      id,
+      subtitlePaths: downloads[i2].subtitlePaths,
+    });
+  });
+}
+
+/** Tell the renderer + persist after finalizeDownloadOutcome. */
+function publishDownloadOutcome(id) {
+  const idx = downloads.findIndex((d) => d.id === id);
+  if (idx === -1) return;
+  startSubtitleDownloads(id);
+  sendProgress({
+    id,
+    name: downloads[idx].name,
+    status: downloads[idx].status,
+    progress: downloads[idx].progress,
+    completedAt: downloads[idx].completedAt,
+    filePath: downloads[idx].filePath,
+    size: downloads[idx].size,
+    completedFragments: downloads[idx].completedFragments,
+    totalFragments: downloads[idx].totalFragments,
+    lastMessage: downloads[idx].lastMessage,
+    logPath: downloads[idx].logPath,
+  });
+  saveDownloads();
+}
+
 function failStalledDownload(id, message) {
   const proc = activeProcs.get(id);
   if (proc) {
@@ -813,6 +899,21 @@ function ensureStallMonitor() {
 const OUTPUT_VIDEO_EXTS = [".mp4", ".mkv", ".webm", ".mov", ".m4v"];
 
 function validateDownloaderFolder(folderPath) {
+  if (
+    typeof folderPath === "string" &&
+    folderPath.includes("vid-dl-cli-only-2.2.1")
+  ) {
+    const remapped = folderPath
+      .split("vid-dl-cli-only-2.2.1")
+      .join("vid-dl-cli-only-v.2.3.2");
+    const remappedOk = fs.existsSync(path.join(remapped, "_internal"));
+    if (remappedOk) {
+      folderPath = remapped;
+    } else {
+      const bundled = toolPaths.resolveVidDlDir();
+      if (bundled) folderPath = bundled;
+    }
+  }
   if (!folderPath) return { ok: false, reason: "no_folder" };
   let entries;
   try {
@@ -1029,14 +1130,272 @@ function downloadSubtitleFile(url, destPath) {
   });
 }
 
+// Player Origin/Referer for CDN fetches (keep in sync with src/utils/api.js).
+const PLAYER_ACCESS_HEADERS = {
+  videasy: {
+    Origin: "https://player.videasy.to",
+    Referer: "https://player.videasy.to/",
+  },
+  vidsrc: {
+    Origin: "https://vsembed.su",
+    Referer: "https://vsembed.su/",
+  },
+  vidking: {
+    Origin: "https://www.vidking.net",
+    Referer: "https://www.vidking.net/",
+  },
+  "2embed": {
+    Origin: "https://www.vidking.net",
+    Referer: "https://www.vidking.net/",
+  },
+};
+
+function resolvePlayerAccessHeaders(sourceId) {
+  const key = String(sourceId || "videasy").toLowerCase();
+  return PLAYER_ACCESS_HEADERS[key] || PLAYER_ACCESS_HEADERS.videasy;
+}
+
+function buildVidDlSpawnEnv() {
+  const env = { ...process.env };
+  const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const prefixes = [];
+
+  try {
+    const binDir = toolPaths.getBundledBinDir?.();
+    if (binDir && fs.existsSync(binDir)) prefixes.push(binDir);
+  } catch {}
+
+  try {
+    const ffmpeg = toolPaths.resolveTool("ffmpeg");
+    if (ffmpeg && path.isAbsolute(ffmpeg)) {
+      prefixes.push(path.dirname(ffmpeg));
+    }
+  } catch {}
+
+  if (prefixes.length) {
+    const current = env[pathKey] || env.PATH || "";
+    const ordered = [];
+    for (const p of prefixes) {
+      const resolved = path.resolve(p);
+      if (
+        !ordered.some((x) => x.toLowerCase() === resolved.toLowerCase()) &&
+        !current.toLowerCase().includes(resolved.toLowerCase())
+      ) {
+        ordered.push(resolved);
+      }
+    }
+    if (ordered.length) {
+      env[pathKey] = `${ordered.join(path.delimiter)}${path.delimiter}${current}`;
+    }
+  }
+  return env;
+}
+
+function buildVidDlYtdlpHeaderArgs(sourceId) {
+  // Legacy sync helper — prefer buildDownloadAuthYtdlpArgs (async) at spawn time.
+  const headers = resolvePlayerAccessHeaders(sourceId);
+  const ua =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  return [
+    `--add-header Origin:${headers.Origin}`,
+    `--add-header Referer:${headers.Referer}`,
+    `--add-header User-Agent:${ua}`,
+  ].join(" ");
+}
+
+function uniqueOutputMp4(folder, name) {
+  const stem = getSafeStem(name) || "video";
+  let out = path.join(folder, `${stem}.mp4`);
+  let n = 1;
+  while (fs.existsSync(out)) {
+    out = path.join(folder, `${stem}_${n}.mp4`);
+    n += 1;
+  }
+  return out;
+}
+
+/**
+ * Preferred path for movie/TV HLS: download through the same Chromium session
+ * that already streamed the video (avoids yt-dlp generic 403 on CDN URLs).
+ * @returns {Promise<boolean>} true if handled (success or cancel); false = fall back to vid-dl
+ */
+async function trySessionHlsDownload(
+  id,
+  m3u8Url,
+  name,
+  downloadPath,
+  sourceId,
+  streamHeaders,
+  logPath,
+) {
+  if (!hlsSessionDownload.isHlsUrl(m3u8Url)) return false;
+
+  const ffmpegPath = findFfmpeg();
+  if (!ffmpegPath) {
+    try {
+      fs.appendFileSync(
+        logPath,
+        "session-hls: ffmpeg not found — falling back to vid-dl\n",
+        "utf8",
+      );
+    } catch {}
+    return false;
+  }
+
+  const abort = new AbortController();
+  const killer = {
+    kill() {
+      try {
+        abort.abort();
+      } catch {}
+    },
+  };
+  activeProcs.set(id, killer);
+  touchDownloadActivity(id);
+  ensureStallMonitor();
+
+  const appendLog = (line) => {
+    try {
+      fs.appendFileSync(logPath, `${String(line)}\n`, "utf8");
+    } catch {}
+  };
+
+  appendLog(
+    "Using browser-session HLS download (same network stack as in-app playback)",
+  );
+  appendLog("─".repeat(60));
+
+  const outputPath = uniqueOutputMp4(downloadPath, name);
+  const playerHeaders = resolvePlayerAccessHeaders(sourceId);
+
+  try {
+    const result = await hlsSessionDownload.downloadHlsViaPlayerSession({
+      m3u8Url,
+      outputPath,
+      streamHeaders,
+      playerHeaders,
+      ffmpegPath,
+      signal: abort.signal,
+      onLog: (msg) => {
+        for (const line of String(msg).split(/\r?\n/)) {
+          if (line.trim()) appendLog(line.trim());
+        }
+      },
+      onProgress: (update) => {
+        const idx = downloads.findIndex((d) => d.id === id);
+        if (idx === -1) return;
+        downloads[idx] = {
+          ...downloads[idx],
+          ...update,
+          status: "downloading",
+        };
+        sendProgress({ id, ...update, status: "downloading" });
+        touchDownloadActivity(id, {
+          completedFragments: update.completedFragments,
+          mergeStartedAt: update.mergeStartedAt,
+        });
+      },
+    });
+
+    activeProcs.delete(id);
+    stallState.delete(id);
+
+    const idx = downloads.findIndex((d) => d.id === id);
+    if (idx === -1) {
+      drainDownloadQueue();
+      return true;
+    }
+
+    downloads[idx].filePath = result.outputPath;
+    downloads[idx].lastMessage = "Download finished (browser session)";
+    appendLog(`Download finished: ${result.outputPath}`);
+    finalizeDownloadOutcome(idx, { exitCode: 0, stderrBuf: "" });
+    publishDownloadOutcome(id);
+    drainDownloadQueue();
+    return true;
+  } catch (e) {
+    activeProcs.delete(id);
+    stallState.delete(id);
+    const msg = e?.message || String(e);
+    appendLog(`session-hls failed: ${msg}`);
+    appendLog("Falling back to vid-dl / yt-dlp…");
+    appendLog("─".repeat(60));
+    if (/cancel/i.test(msg) || abort.signal.aborted) {
+      const idx = downloads.findIndex((d) => d.id === id);
+      if (idx !== -1) {
+        downloads[idx].status = "error";
+        downloads[idx].completedAt = Date.now();
+        downloads[idx].lastMessage = "Cancelled";
+        sendProgress({ id, status: "error", lastMessage: "Cancelled" });
+        saveDownloads();
+      }
+      drainDownloadQueue();
+      return true;
+    }
+    return false;
+  }
+}
+
 // ── Spawn downloader child process ────────────────────────────────────────────
 
-function spawnDownloadProcess(id, binaryPath, m3u8Url, name, downloadPath) {
+async function spawnDownloadProcess(
+  id,
+  binaryPath,
+  m3u8Url,
+  name,
+  downloadPath,
+  sourceId,
+  streamHeaders,
+) {
   const idx0 = downloads.findIndex((d) => d.id === id);
   if (idx0 === -1) return;
 
   const logPath = downloads[idx0].logPath;
-  const activeCount = getActiveDownloadCount();
+  const resolvedSource =
+    sourceId || downloads[idx0].sourceId || "videasy";
+  const headersFromCapture =
+    streamHeaders || downloads[idx0].streamHeaders || {};
+
+  // Prefer Chromium session download — same stack that can already play the stream
+  const usedSession = await trySessionHlsDownload(
+    id,
+    m3u8Url,
+    name,
+    downloadPath,
+    resolvedSource,
+    headersFromCapture,
+    logPath,
+  );
+  if (usedSession) return;
+
+  let headerArgString = buildVidDlYtdlpHeaderArgs(resolvedSource);
+  try {
+    const auth = await downloadAuth.buildDownloadAuthYtdlpArgs({
+      m3u8Url,
+      sourceId: resolvedSource,
+      streamHeaders: headersFromCapture,
+      playerHeaders: resolvePlayerAccessHeaders(resolvedSource),
+    });
+    if (auth.argString) headerArgString = auth.argString;
+    if (auth.notes?.length) {
+      try {
+        fs.appendFileSync(
+          logPath,
+          `Auth: ${auth.notes.join("; ")}\n${"─".repeat(60)}\n`,
+          "utf8",
+        );
+      } catch {}
+    }
+  } catch (e) {
+    try {
+      fs.appendFileSync(
+        logPath,
+        `Auth setup warning: ${e.message || e}\n`,
+        "utf8",
+      );
+    } catch {}
+  }
+
   const args = [
     "--cli",
     m3u8Url,
@@ -1050,9 +1409,12 @@ function spawnDownloadProcess(id, binaryPath, m3u8Url, name, downloadPath) {
     name,
     "-d",
     downloadPath,
+    "--ytdlp-args",
+    headerArgString,
   ];
   const proc = spawn(binaryPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
+    env: buildVidDlSpawnEnv(),
   });
   activeProcs.set(id, proc);
   touchDownloadActivity(id);
@@ -1297,84 +1659,7 @@ function spawnDownloadProcess(id, binaryPath, m3u8Url, name, downloadPath) {
     }
 
     finalizeDownloadOutcome(idx, { exitCode: code, stderrBuf });
-    const status = downloads[idx].status;
-
-    if (
-      status === "completed" &&
-      downloads[idx].subtitles?.length > 0 &&
-      downloads[idx].filePath
-    ) {
-      const videoBase = downloads[idx].filePath.replace(/\.[^.]+$/, "");
-      const langCounter = {};
-      const KNOWN_SUB_EXTS = [
-        ".vtt",
-        ".srt",
-        ".ass",
-        ".ssa",
-        ".sub",
-        ".idx",
-      ];
-      const subPromises = downloads[idx].subtitles.map(
-        ({ url, lang, name: subName, file_id }) => {
-          const urlClean = url.split("?")[0].split("#")[0];
-          const urlExt = path
-            .extname(urlClean)
-            .toLowerCase()
-            .replace(/[^a-z0-9.]/g, "");
-          const nameExt = subName
-            ? path
-                .extname(subName)
-                .toLowerCase()
-                .replace(/[^a-z0-9.]/g, "")
-            : "";
-          const subExt = KNOWN_SUB_EXTS.includes(urlExt)
-            ? urlExt
-            : KNOWN_SUB_EXTS.includes(nameExt)
-              ? nameExt
-              : ".srt";
-          const safeLang = (lang || "unknown").replace(/[^a-z0-9_-]/gi, "");
-          const lIdx = langCounter[safeLang] ?? 0;
-          langCounter[safeLang] = lIdx + 1;
-          const suffix = lIdx > 0 ? `.${lIdx}` : "";
-          const subDestPath = `${videoBase}.${safeLang}${suffix}${subExt}`;
-          return downloadSubtitleFile(url, subDestPath).then((ok) =>
-            ok
-              ? {
-                  lang: lang || "unknown",
-                  path: subDestPath,
-                  file_id: file_id || null,
-                }
-              : null,
-          );
-        },
-      );
-      Promise.all(subPromises).then((results) => {
-        const i2 = downloads.findIndex((d) => d.id === id);
-        if (i2 !== -1) {
-          downloads[i2].subtitlePaths = results.filter(Boolean);
-          saveDownloads();
-          sendProgress({
-            id,
-            subtitlePaths: downloads[i2].subtitlePaths,
-          });
-        }
-      });
-    }
-
-    sendProgress({
-      id,
-      name,
-      status: downloads[idx].status,
-      progress: downloads[idx].progress,
-      completedAt: downloads[idx].completedAt,
-      filePath: downloads[idx].filePath,
-      size: downloads[idx].size,
-      completedFragments: downloads[idx].completedFragments,
-      totalFragments: downloads[idx].totalFragments,
-      lastMessage: downloads[idx].lastMessage,
-      logPath: downloads[idx].logPath,
-    });
-    saveDownloads();
+    publishDownloadOutcome(id);
     drainDownloadQueue();
   });
 }
@@ -1395,6 +1680,8 @@ function enqueueDownload({
   subtitles,
   resolveContext,
   seriesBatchId,
+  sourceId,
+  streamHeaders,
 }) {
   const binaryPath = trustedBinaryPaths.get(token);
   if (!binaryPath) {
@@ -1407,6 +1694,13 @@ function enqueueDownload({
     return { ok: false, error: "Stream resolver not configured" };
   }
   const deferResolve = !!resolveContext;
+  const resolvedSourceId =
+    sourceId ||
+    resolveContext?.sourceId ||
+    resolveContext?.sources?.[0] ||
+    "videasy";
+  const normalizedStreamHeaders =
+    streamHeaders && typeof streamHeaders === "object" ? streamHeaders : {};
 
   const entry = {
     id,
@@ -1435,6 +1729,8 @@ function enqueueDownload({
     subtitlePaths: [],
     logPath,
     seriesBatchId: seriesBatchId || null,
+    sourceId: resolvedSourceId,
+    streamHeaders: normalizedStreamHeaders,
   };
 
   try {
@@ -1475,6 +1771,8 @@ function enqueueDownload({
       name,
       downloadPath,
       resolveContext: deferResolve ? resolveContext : null,
+      sourceId: resolvedSourceId,
+      streamHeaders: normalizedStreamHeaders,
     });
     sendProgress({
       id,
@@ -1489,7 +1787,15 @@ function enqueueDownload({
     });
     drainDownloadQueue();
   } else {
-    spawnDownloadProcess(id, binaryPath, m3u8Url, name, downloadPath);
+    void spawnDownloadProcess(
+      id,
+      binaryPath,
+      m3u8Url,
+      name,
+      downloadPath,
+      resolvedSourceId,
+      normalizedStreamHeaders,
+    );
   }
 
   return { ok: true, id, queued: shouldQueue };
@@ -1551,6 +1857,9 @@ function register(getMainWindow) {
         tmdbId,
         subtitles,
         seriesBatchId,
+        sourceId,
+        resolveContext,
+        streamHeaders,
       },
     ) => {
       try {
@@ -1567,12 +1876,32 @@ function register(getMainWindow) {
           tmdbId,
           subtitles,
           seriesBatchId,
+          sourceId,
+          resolveContext,
+          streamHeaders,
         });
       } catch (e) {
         return { ok: false, error: e.message };
       }
     },
   );
+
+  ipcMain.handle("get-download-auth-prefs", () => {
+    try {
+      return { ok: true, ...downloadAuth.loadPrefs() };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
+  ipcMain.handle("set-download-auth-prefs", (_, prefs = {}) => {
+    try {
+      const next = downloadAuth.savePrefs(prefs);
+      return { ok: true, ...next };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
 
   ipcMain.handle("set-max-concurrent-downloads", (_, { max } = {}) => {
     const n = Math.max(1, Math.min(20, parseInt(max, 10) || 3));
@@ -1669,6 +1998,8 @@ function register(getMainWindow) {
           token: useToken,
           m3u8Url,
           ...snapshot,
+          sourceId: old.sourceId || null,
+          streamHeaders: old.streamHeaders || {},
         });
         if (!result.ok) {
           downloads.push({ ...old, ...snapshot, m3u8Url });
