@@ -110,6 +110,8 @@ This application is provided "as is" for educational purposes. The developer:
 - Encourages users to support content creators through legal means
 - Requires citation and written credit statement if any portion or dervation of this project is used in another project (like 'Huge thanks to SteStein.com for their work on Streamstein, which this project was based on.' or something similar (SteStein is my portfolio website).
 
-## Star History
+## GitHub Stars
 
-[![Star History Chart](https://api.star-history.com/chart?repos=CodeUpdaterBot/StreamStein&type=date&legend=top-left)](https://www.star-history.com/?repos=CodeUpdaterBot%2FStreamStein&type=date&legend=top-left)
+[![GitHub Repo stars](https://img.shields.io/github/stars/CodeUpdaterBot/StreamStein?style=for-the-badge&logo=github&label=Stars)](https://github.com/CodeUpdaterBot/StreamStein/stargazers)
+
+_Star-history charts are currently disabled here because GitHub restricts the external star-history API. Use the badge above or the [stargazers page](https://github.com/CodeUpdaterBot/StreamStein/stargazers) for the current count._
