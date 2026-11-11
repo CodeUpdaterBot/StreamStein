@@ -36,6 +36,12 @@ const SIDECAR_SUFFIX = ".comments.json";
 // yt-dlp's own default is 100 comments; a library of 2000 videos needs a sane
 // ceiling that still captures a thread worth reading. Overridable per fetch.
 const DEFAULT_MAX_COMMENTS = 1000;
+/**
+ * yt-dlp's own comment ordering. Deliberately not `top`: the sorted endpoints
+ * return fewer comments (measured 94 vs 77 and 695 vs 625 on real videos), and the
+ * viewer re-sorts from the stored data anyway.
+ */
+const DEFAULT_COMMENT_SORT = "default";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -218,7 +224,7 @@ function parseYtDlpComments(payload, meta = {}) {
       version: meta.ytDlpVersion || null,
       path: meta.ytDlpPath || null,
     },
-    sort: meta.sort || "top",
+    sort: meta.sort || "default",
     limit,
     stats: {
       reportedCount: Number.isFinite(reportedCount) ? reportedCount : null,
@@ -369,7 +375,12 @@ function buildArgs({ watchUrl, maxComments, sort }) {
       `youtube:max_comments=${Math.floor(maxComments)},all,all,all`,
     );
   }
-  if (sort === "new" || sort === "top" || sort === "old") {
+  // Ordering is NOT passed by default, and that is deliberate: yt-dlp's own default
+  // yields strictly MORE comments than the sorted endpoints. Measured on two real
+  // videos (2026-11-11): 94 vs 77 and 695 vs 625 — i.e. `comment_sort=top` silently
+  // costs 11-22% of the thread. The viewer sorts client-side from the stored data
+  // (Top / Newest / Most liked), so yt-dlp's ordering buys us nothing.
+  if (sort === "top" || sort === "new" || sort === "old") {
     args.push("--extractor-args", `youtube:comment_sort=${sort}`);
   }
   args.push("--print", PRINT_FIELDS, watchUrl);
@@ -392,7 +403,7 @@ function fetchCommentsForVideo(options = {}) {
     youtubeFolder,
     catalogPath,
     maxComments = DEFAULT_MAX_COMMENTS,
-    sort = "top",
+    sort = DEFAULT_COMMENT_SORT,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     ytDlpCommand,
     onProgress,
@@ -740,6 +751,7 @@ module.exports = {
   COMMENTS_VERSION,
   SIDECAR_SUFFIX,
   DEFAULT_MAX_COMMENTS,
+  DEFAULT_COMMENT_SORT,
   MIN_COMMENT_CAPABLE_VERSION,
   commentsPathFor,
   isCommentsFile,
