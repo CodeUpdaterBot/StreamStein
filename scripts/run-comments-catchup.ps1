@@ -47,21 +47,31 @@ if ($CappedPass -gt 0) {
 
 Write-Output "launching $Workers sharded workers..."
 for ($i = 0; $i -lt $Workers; $i++) {
-    $args = @(
-        (Join-Path $repo 'scripts\comments-catchup.cjs'),
+    # Relative script path on purpose: Start-Process splits an -ArgumentList entry that
+    # contains spaces, so an absolute "C:\Users\PC\Documents\Coding Projects\..." becomes
+    # two arguments and node fails with "Cannot find module C:\Users\PC\Documents\Coding".
+    $argList = @(
+        'scripts\comments-catchup.cjs',
         '--shard', "$i/$Workers",
         '--max', "$MaxPerVideo",
         '--max-total', "$MaxTotal"
     )
-    Start-Process -FilePath $node -ArgumentList $args `
+    Start-Process -FilePath $node -ArgumentList $argList `
         -WorkingDirectory $repo -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $stateDir "shard$i.out.log") `
         -RedirectStandardError  (Join-Path $stateDir "shard$i.err.log")
     Write-Output "  worker $($i + 1)/$Workers started (shard $i/$Workers)"
 }
 
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 8
 $live = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
     Where-Object { $_.CommandLine -like '*comments-catchup*' })
 Write-Output "workers alive: $($live.Count)"
+if ($live.Count -eq 0) {
+    Write-Output "NO WORKERS - stderr tails:"
+    for ($i = 0; $i -lt $Workers; $i++) {
+        $err = Join-Path $stateDir "shard$i.err.log"
+        if (Test-Path $err) { Write-Output "  --- shard $i"; Get-Content $err -Tail 4 }
+    }
+}
 Write-Output "logs: $stateDir\catchup-shard*of$Workers.log"

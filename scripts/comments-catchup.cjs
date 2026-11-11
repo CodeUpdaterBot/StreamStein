@@ -125,6 +125,17 @@ state.startedAt = state.startedAt || new Date().toISOString();
 
 const keyOf = (filePath) => path.normalize(filePath).toLowerCase();
 
+/** Turn a yt-dlp failure into a short, human-readable permanent-skip reason. */
+function shortPermanentReason(detail) {
+  const membersOnly = /members-only|join this channel/i.test(detail);
+  if (membersOnly) return "members-only video (needs channel membership cookies)";
+  const unavailable = /video unavailable|removed by the uploader|no longer available|this video is not available/i.test(detail);
+  if (unavailable) return "video unavailable (removed or region-blocked)";
+  const privateVideo = /private video/i.test(detail);
+  if (privateVideo) return "private video";
+  return "permanently unavailable to yt-dlp";
+}
+
 async function main() {
 // ── Build the work list ──────────────────────────────────────────────────────
 
@@ -222,6 +233,13 @@ if (ONLY_CAPPED) {
   queue = myShard.filter((v) => state.processed[keyOf(v.filePath)]?.truncated === true);
 }
 
+// Videos already known to be permanently unavailable (members-only, removed) are not
+// retried on later runs. --force overrides, for the day the user supplies cookies.
+const permanentSkips = new Set(Object.keys(state.skippedPermanent || {}));
+if (permanentSkips.size > 0 && !FORCE) {
+  queue = queue.filter((v) => !permanentSkips.has(keyOf(v.filePath)));
+}
+
 if (SORT === "new") {
   queue.sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")));
 } else if (SORT === "old") {
@@ -242,7 +260,8 @@ log(
     `maxComments=${MAX_COMMENTS} maxTotal=${MAX_TOTAL_COMMENTS} delay=${BASE_DELAY_MS}ms ` +
     `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT}${FORCE ? " force" : ""}` +
     `${ONLY_CAPPED ? " onlyCapped" : ""}` +
-    `${SHARD_COUNT > 1 ? ` shard=${SHARD_INDEX + 1}/${SHARD_COUNT}` : ""}`,
+    `${SHARD_COUNT > 1 ? ` shard=${SHARD_INDEX + 1}/${SHARD_COUNT}` : ""}` +
+    `${permanentSkips.size ? ` permanentSkipped=${permanentSkips.size}` : ""}`,
 );
 
 /**
@@ -276,6 +295,7 @@ const run = {
   ok: 0,
   zeroComments: 0,
   failed: 0,
+  skippedPermanent: 0,
   storedComments: 0,
   consecutiveFailures: 0,
   lastDelayMs: BASE_DELAY_MS,
@@ -369,17 +389,40 @@ for (const video of queue) {
         `${result.warnings?.length ? ` | ${result.warnings.join("; ")}` : ""}`,
     );
   } else {
-    run.failed += 1;
-    run.consecutiveFailures += 1;
-    state.failures[key] = {
-      videoId: video.videoId || null,
-      fileName: video.fileName,
-      error: result?.error || "unknown error",
-      at: new Date().toISOString(),
-      attempts,
-    };
-    log(`[${index}/${total}] FAIL ${label}: ${result?.error || "unknown error"}`);
-    await backoff(run.consecutiveFailures);
+    // Some errors are permanent and per-video, not transient failures: a members-only
+    // video, a removed/private one. Retrying costs a full second fetch each time and
+    // pollutes the failure count, which should mean "something to look at". Measured
+    // 2026-11-11: 5 of the first 373 videos were members-only (yt-dlp: "Join this
+    // channel to get access to members-only content").
+    const detail = `${result?.error || ""} ${result?.stderr || ""}`;
+    const permanentPattern =
+      /members-only|join this channel|video unavailable|private video|removed by the uploader|no longer available|not available in your country|this video is not available/i;
+    if (permanentPattern.test(detail)) {
+      const reason = shortPermanentReason(detail);
+      state.skippedPermanent = state.skippedPermanent || {};
+      state.skippedPermanent[key] = {
+        videoId: video.videoId || null,
+        fileName: video.fileName,
+        reason,
+        at: new Date().toISOString(),
+      };
+      delete state.failures[key];
+      run.skippedPermanent += 1;
+      run.consecutiveFailures = 0;
+      log(`[${index}/${total}] SKIP ${label}: ${reason}`);
+    } else {
+      run.failed += 1;
+      run.consecutiveFailures += 1;
+      state.failures[key] = {
+        videoId: video.videoId || null,
+        fileName: video.fileName,
+        error: result?.error || "unknown error",
+        at: new Date().toISOString(),
+        attempts,
+      };
+      log(`[${index}/${total}] FAIL ${label}: ${result?.error || "unknown error"}`);
+      await backoff(run.consecutiveFailures);
+    }
   }
 
   // Persist after every video: the run is restartable at any moment.
@@ -391,6 +434,8 @@ for (const video of queue) {
     remaining: total - index,
     storedTotal,
     maxTotalComments: MAX_TOTAL_COMMENTS,
+    noUrlSkipped: Object.keys(state.skippedNoUrl || {}).length,
+    permanentSkipped: Object.keys(state.skippedPermanent || {}).length,
     processedTotal: Object.keys(state.processed).length,
     failedTotal: Object.keys(state.failures).length,
     updatedAt: new Date().toISOString(),
@@ -429,6 +474,7 @@ writeJson(SUMMARY_FILE, {
 log(
   `done: ok=${run.ok} (zero-comment videos=${run.zeroComments}) failed=${run.failed} ` +
     `noUrlSkipped=${Object.keys(state.skippedNoUrl || {}).length} ` +
+    `permanentSkipped=${Object.keys(state.skippedPermanent || {}).length} ` +
     `commentsStored=${run.storedComments} storedTotal=${storedTotal.toLocaleString()} ` +
     `in ${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s`,
 );
