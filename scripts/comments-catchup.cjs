@@ -6,7 +6,7 @@
  *
  *     --limit N        stop after N videos (pilot runs)
  *     --max N          comments ceiling PER VIDEO (default 10000)
- *     --max-total N    comments budget for the whole library (default 1000000);
+ *     --max-total N    comments budget for the whole library (default 10000000);
  *                      the run stops cleanly when stored total reaches it
  *     --only-capped    re-fetch only videos a previous run had to cap
  *     --delay MS       base delay between videos (default 3000, jittered ±50%)
@@ -45,8 +45,8 @@ const flag = (name) => argv.includes(name);
 const LIMIT = Number(argOf("--limit", 0)) || 0;
 const MAX_COMMENTS = Number(argOf("--max", comments.DEFAULT_MAX_COMMENTS));
 // Library-wide budget. The per-video ceiling protects one video; this protects the
-// whole run from ballooning (1M comments is the agreed ceiling for the library).
-const MAX_TOTAL_COMMENTS = Number(argOf("--max-total", 1_000_000));
+// whole run from ballooning (10M comments is the agreed ceiling for the library).
+const MAX_TOTAL_COMMENTS = Number(argOf("--max-total", 10_000_000));
 const BASE_DELAY_MS = Number(argOf("--delay", 3000));
 const FORCE = flag("--force");
 // Re-fetch only the videos a previous run had to cap, at the new (higher) ceiling.
