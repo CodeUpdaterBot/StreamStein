@@ -9,11 +9,13 @@ import {
   PopOutIcon,
   TrashIcon,
   WarningIcon,
+  CommentsIcon,
 } from "../components/Icons";
 import LocalVideoPlayer from "../components/LocalVideoPlayer";
 import CastPickerModal from "../components/CastPickerModal";
 import CastMiniController from "../components/CastMiniController";
 import YoutubeDeleteConfirmModal from "../components/YoutubeDeleteConfirmModal";
+import YoutubeCommentsModal from "../components/YoutubeCommentsModal";
 import YoutubeMissingOnDiskModal from "../components/YoutubeMissingOnDiskModal";
 import YoutubeEmptyState from "../components/YoutubeEmptyState";
 import { storage, isElectron, STORAGE_KEYS } from "../utils/storage";
@@ -75,6 +77,7 @@ function YouTubeWatchView({
   playing,
   onPlay,
   onBack,
+  onComments,
   cast,
   castVideo,
   setCastVideo,
@@ -254,6 +257,18 @@ function YouTubeWatchView({
                 onClick={() => setCastVideo(video)}
               >
                 <CastIcon /> Cast
+              </button>
+              <button className="btn btn-secondary" onClick={onComments}>
+                <CommentsIcon /> Comments
+                {video.commentsPath ? (
+                  <span
+                    className={`yt-watch__comments-count${(video.commentsCount ?? 0) > 0 ? "" : " yt-card__comments-count--empty"}`}
+                  >
+                    {video.commentsCount >= 1000
+                      ? `${Math.round(video.commentsCount / 1000)}k`
+                      : (video.commentsCount ?? 0)}
+                  </span>
+                ) : null}
               </button>
               {video.watchUrl && (
                 <button
@@ -515,6 +530,7 @@ export default function YouTubePage({
   const cast = useCast();
   const [castVideo, setCastVideo] = useState(null);
   const [pendingDeleteVideo, setPendingDeleteVideo] = useState(null);
+  const [commentsVideo, setCommentsVideo] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [deleteSkipConfirm, setDeleteSkipConfirm] = useState(false);
   const [missingModalOpen, setMissingModalOpen] = useState(false);
@@ -926,16 +942,30 @@ export default function YouTubePage({
 
   if (selectedVideo) {
     return (
-      <YouTubeWatchView
-        key={selectedVideo.id}
-        video={selectedVideo}
-        playing={playing}
-        onPlay={() => setPlaying(true)}
-        onBack={closeWatch}
-        cast={cast}
-        castVideo={castVideo}
-        setCastVideo={setCastVideo}
-      />
+      <>
+        <YouTubeWatchView
+          key={selectedVideo.id}
+          video={selectedVideo}
+          playing={playing}
+          onPlay={() => setPlaying(true)}
+          onBack={closeWatch}
+          onComments={() =>
+            setCommentsVideo({ ...selectedVideo, youtubeFolder: catalogMeta?.folder })
+          }
+          cast={cast}
+          castVideo={castVideo}
+          setCastVideo={setCastVideo}
+        />
+        {commentsVideo && (
+          <YoutubeCommentsModal
+            video={commentsVideo}
+            onClose={() => setCommentsVideo(null)}
+            onFetched={() => {
+              if (commentsVideo?.id) refreshYoutubeVideoById(commentsVideo.id);
+            }}
+          />
+        )}
+      </>
     );
   }
 
@@ -968,6 +998,15 @@ export default function YouTubePage({
           skipConfirm={deleteSkipConfirm}
           onSkipConfirmChange={setDeleteSkipConfirm}
           busy={!!deletingId}
+        />
+      )}
+      {commentsVideo && (
+        <YoutubeCommentsModal
+          video={commentsVideo}
+          onClose={() => setCommentsVideo(null)}
+          onFetched={() => {
+            if (commentsVideo?.id) refreshYoutubeVideoById(commentsVideo.id);
+          }}
         />
       )}
       {cast.currentDevice && (
@@ -1174,16 +1213,19 @@ export default function YouTubePage({
                 window.electron?.showInFolder(video.filePath)
               }
               onCast={() => setCastVideo(video)}
-              onDelete={() => handleDeleteRequest(video)}
-              onSettings={onSettings}
-              onMetadataSyncClosed={refreshYoutubeVideoById}
-              onEditClosed={refreshYoutubeVideoById}
-              onLibraryRefresh={refreshYoutubeVideoById}
-              deleting={deletingId === video.id}
-            />
-          ))}
-        </div>
-      )}
+                  onDelete={() => handleDeleteRequest(video)}
+                  onComments={() =>
+                    setCommentsVideo({ ...video, youtubeFolder: catalogMeta?.folder })
+                  }
+                  onSettings={onSettings}
+                  onMetadataSyncClosed={refreshYoutubeVideoById}
+                  onEditClosed={refreshYoutubeVideoById}
+                  onLibraryRefresh={refreshYoutubeVideoById}
+                  deleting={deletingId === video.id}
+                />
+              ))}
+              </div>
+              )}
 
       {!loading &&
         sorted.length > 0 &&
@@ -1207,6 +1249,9 @@ export default function YouTubePage({
                   }
                   onCast={() => setCastVideo(video)}
                   onDelete={() => handleDeleteRequest(video)}
+                  onComments={() =>
+                    setCommentsVideo({ ...video, youtubeFolder: catalogMeta?.folder })
+                  }
                   onSettings={onSettings}
                   onMetadataSyncClosed={refreshYoutubeVideoById}
                   onEditClosed={refreshYoutubeVideoById}
@@ -1229,6 +1274,7 @@ const YouTubeVideoCard = memo(function YouTubeVideoCard({
   onShowFolder,
   onCast,
   onDelete,
+  onComments,
   onSettings,
   onMetadataSyncClosed,
   onEditClosed,
@@ -1371,6 +1417,28 @@ const YouTubeVideoCard = memo(function YouTubeVideoCard({
             onClick={onCast}
           >
             <CastIcon />
+          </button>
+          <button
+            type="button"
+            className={`icon-btn yt-card__comments-btn${video.commentsPath ? " is-captured" : ""}`}
+            title={
+              video.commentsPath
+                ? `${video.commentsCount ?? 0} comments captured — open the comment viewer`
+                : "Capture this video's comments"
+            }
+            disabled={missing}
+            onClick={onComments}
+          >
+            <CommentsIcon />
+            {video.commentsPath ? (
+              <span
+                className={`yt-card__comments-count${(video.commentsCount ?? 0) > 0 ? "" : " yt-card__comments-count--empty"}`}
+              >
+                {video.commentsCount >= 1000
+                  ? `${Math.round(video.commentsCount / 1000)}k`
+                  : (video.commentsCount ?? 0)}
+              </span>
+            ) : null}
           </button>
           <YoutubeCardEditButton
             edit={catalogEdit}

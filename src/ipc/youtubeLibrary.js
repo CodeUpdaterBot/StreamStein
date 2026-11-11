@@ -11,6 +11,7 @@ const {
 } = require("./libraryPathsMain");
 const { stripWindowsDuplicateBasename } = require("./youtubeCatalogDedupe");
 const { syncCatalogFromDisk } = require("./youtubeCatalogScan");
+const { buildCommentsIndex } = require("./youtubeComments");
 const {
   cloneCatalogRecordForMetadataTest,
 } = require("./youtubeCatalogTestClone");
@@ -145,6 +146,7 @@ function enrichVideoRecords(raw, youtubeFolder) {
   const folder = resolveYoutubeFolder(youtubeFolder);
   const catalogRecords = Array.isArray(raw.records) ? raw.records : [];
   const transcriptIndex = buildTranscriptIndex(catalogRecords);
+  const commentsIndex = buildCommentsIndex(catalogRecords);
 
   const videos = catalogRecords
     .filter(
@@ -159,6 +161,7 @@ function enrichVideoRecords(raw, youtubeFolder) {
       const dir = normalizePath(r.directory || path.dirname(r.filePath));
       const tKey = `${dir}::${stripWindowsDuplicateBasename(basenameNoExt(r.filePath)).toLowerCase()}`;
       const transcriptPath = transcriptIndex.get(tKey) || null;
+      const commentsRecord = commentsIndex.get(tKey) || null;
       let fileExists = false;
       try {
         fileExists = fs.existsSync(r.filePath);
@@ -192,6 +195,9 @@ function enrichVideoRecords(raw, youtubeFolder) {
         metadataTestClone: r.metadataTestClone === true,
         metadataTestSourceId: r.metadataTestSourceId || null,
         transcriptPath,
+        commentsPath: commentsRecord?.filePath || null,
+        commentsCount: commentsRecord?.commentsCount ?? null,
+        commentsFetchedAt: commentsRecord?.commentsFetchedAt || null,
         fileExists,
         canPlayInApp: IN_APP_PLAY_EXTS.has(ext),
       };

@@ -101,6 +101,18 @@ contextBridge.exposeInMainWorld("electron", {
   pruneSubtitlePaths: (downloadId) =>
     ipcRenderer.invoke("prune-subtitle-paths", { downloadId }),
 
+  // YouTube comments capture (sidecar `<video>.comments.json` beside the video)
+  fetchYoutubeComments: (args) => ipcRenderer.invoke("youtube-comments-fetch", args),
+  readYoutubeComments: (args) => ipcRenderer.invoke("youtube-comments-read", args),
+  youtubeCommentsExists: (args) => ipcRenderer.invoke("youtube-comments-exists", args),
+  deleteYoutubeComments: (args) => ipcRenderer.invoke("youtube-comments-delete", args),
+  onYoutubeCommentsProgress: (cb) => {
+    const h = (_, data) => cb(data);
+    ipcRenderer.on("youtube-comments-progress", h);
+    return h;
+  },
+  offYoutubeCommentsProgress: (h) => ipcRenderer.removeListener("youtube-comments-progress", h),
+
   // Close confirmation
   onConfirmClose: (cb) => {
     const h = (_, data) => cb(data);

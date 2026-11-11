@@ -1,0 +1,709 @@
+/* ── YouTube comments viewer ──────────────────────────────────────────────────
+   Modal that shows the stored comment capture for one library video.
+   Reads the theme tokens from global.css so it matches Streamstein exactly:
+   --surface / --surface2 / --surface3, --border, --red / --red-dim, --text /
+   --text2 / --text3, --gold, --radius, --font-body, --shadow-lg.
+
+   Markup lives in src/components/YoutubeCommentsModal.jsx; the data behind it is
+   the `<video>.comments.json` sidecar written by src/ipc/youtubeComments.js.
+   --------------------------------------------------------------------------- */
+
+@keyframes yt-comments-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.yt-comments__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3vh 3vw;
+}
+
+.yt-comments__modal {
+  width: min(1180px, 94vw);
+  height: min(88vh, 920px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+}
+
+/* ── Header ── */
+
+.yt-comments__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent);
+}
+
+.yt-comments__headmain {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.yt-comments__thumb {
+  width: 104px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--surface3);
+}
+
+.yt-comments__thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+}
+
+.yt-comments__headtext {
+  min-width: 0;
+}
+
+.yt-comments__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--red2);
+  margin-bottom: 5px;
+}
+
+.yt-comments__fetched {
+  color: var(--text3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.yt-comments__title {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.yt-comments__subtitle {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yt-comments__close {
+  flex-shrink: 0;
+}
+
+/* ── Stat chips ── */
+
+.yt-comments__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.yt-comments__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text2);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.yt-comments__chip--warn {
+  border-color: rgba(200, 168, 75, 0.45);
+  color: var(--gold);
+}
+
+/* ── Toolbar ── */
+
+.yt-comments__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.yt-comments__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 240px;
+  min-width: 200px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--surface-inset);
+  box-shadow: var(--shadow-inset);
+}
+
+.yt-comments__search svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text3);
+  flex-shrink: 0;
+}
+
+.yt-comments__search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+}
+
+.yt-comments__searchclear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+}
+
+.yt-comments__searchclear svg {
+  width: 13px;
+  height: 13px;
+}
+
+.yt-comments__searchclear:hover {
+  background: var(--surface3);
+  color: var(--text);
+}
+
+.yt-comments__segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+}
+
+.yt-comments__seg {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text3);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.yt-comments__seg:hover {
+  color: var(--text);
+}
+
+.yt-comments__seg.is-active {
+  background: var(--red-dim);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(229, 9, 20, 0.35);
+}
+
+.yt-comments__toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.yt-comments__toolbar-right .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.yt-comments__toolbar .spin {
+  animation: yt-comments-spin 1s linear infinite;
+}
+
+/* ── Progress / errors ── */
+
+.yt-comments__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  font-size: 12.5px;
+  color: var(--text2);
+  background: rgba(229, 9, 20, 0.07);
+  border-bottom: 1px solid var(--border);
+}
+
+.yt-comments__progress-hint {
+  color: var(--text3);
+  font-size: 11.5px;
+}
+
+.yt-comments__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--red2);
+  animation: yt-comments-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.yt-comments__error,
+.yt-comments__warn {
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.yt-comments__error {
+  border: 1px solid rgba(252, 129, 129, 0.35);
+  background: rgba(252, 129, 129, 0.08);
+  color: #fc8181;
+}
+
+.yt-comments__warn {
+  border: 1px solid rgba(200, 168, 75, 0.4);
+  background: rgba(200, 168, 75, 0.08);
+  color: var(--gold);
+}
+
+/* ── Body ── */
+
+.yt-comments__body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 18px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface3) transparent;
+}
+
+.yt-comments__body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.yt-comments__body::-webkit-scrollbar-thumb {
+  background: var(--surface3);
+  border-radius: 10px;
+  border: 2px solid var(--surface);
+}
+
+.yt-comments__state {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text3);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.yt-comments__state--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 20px;
+}
+
+.yt-comments__empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--red-dim);
+  color: var(--red2);
+  box-shadow: var(--red-glow);
+}
+
+.yt-comments__empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.yt-comments__empty-text {
+  max-width: 620px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text3);
+  line-height: 1.6;
+}
+
+.yt-comments__empty-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.yt-comments__state--empty .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Threads ── */
+
+.yt-comments__thread {
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.yt-comments__thread--pinned {
+  border-left: 2px solid rgba(200, 168, 75, 0.5);
+  padding-left: 12px;
+  margin-left: -14px;
+}
+
+.yt-comments__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  position: relative;
+}
+
+.yt-comments__avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface3);
+  flex-shrink: 0;
+}
+
+.yt-comments__avatar--initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 0.02em;
+}
+
+.yt-comments__main {
+  min-width: 0;
+}
+
+.yt-comments__authorline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.yt-comments__author {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+
+.yt-comments__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.yt-comments__badge--verified {
+  color: #7cc3ff;
+  border-color: rgba(124, 195, 255, 0.35);
+  padding: 1px 4px;
+}
+
+.yt-comments__badge--owner {
+  color: var(--red2);
+  border-color: rgba(229, 9, 20, 0.4);
+  background: var(--red-dim);
+}
+
+.yt-comments__badge--pinned {
+  color: var(--gold);
+  border-color: rgba(200, 168, 75, 0.45);
+}
+
+.yt-comments__badge--depth {
+  color: var(--text3);
+  border-style: dashed;
+}
+
+.yt-comments__when {
+  font-size: 11.5px;
+  color: var(--text3);
+  margin-left: 2px;
+}
+
+.yt-comments__text {
+  font-size: 13.5px;
+  line-height: 1.58;
+  color: var(--text2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.yt-comments__more {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--red2);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.yt-comments__more:hover {
+  text-decoration: underline;
+}
+
+.yt-comments__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text3);
+  min-height: 18px;
+}
+
+.yt-comments__likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text3);
+  font-weight: 600;
+}
+
+.yt-comments__likes svg {
+  color: var(--red2);
+  opacity: 0.85;
+}
+
+.yt-comments__replywrap {
+  margin-top: 12px;
+  margin-left: 48px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.yt-comments__replywrap--note {
+  font-size: 12px;
+  color: var(--text3);
+  border-left-style: dashed;
+  padding: 2px 0 2px 14px;
+}
+
+.yt-comments__replies--deep {
+  margin-top: 12px;
+  margin-left: 40px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.yt-comments__row--d2 .yt-comments__text,
+.yt-comments__row--d3 .yt-comments__text {
+  font-size: 13px;
+}
+
+.yt-comments__row--muted {
+  opacity: 0.92;
+}
+
+.yt-comments__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 0;
+  border: none;
+  background: none;
+  color: var(--red2);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.yt-comments__toggle svg {
+  transition: transform 0.16s ease;
+}
+
+.yt-comments__toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.yt-comments__toggle:hover {
+  text-decoration: underline;
+}
+
+.yt-comments__toggle--nested {
+  color: var(--text3);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.yt-comments__toggle--nested:hover {
+  color: var(--red2);
+}
+
+/* ── Search results ── */
+
+.yt-comments__results-count {
+  padding: 12px 0 4px;
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.yt-comments__results .yt-comments__row {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.yt-comments__path {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--text3);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.yt-comments__more-threads {
+  display: block;
+  margin: 18px auto 6px;
+}
+
+/* ── Footer ── */
+
+.yt-comments__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.yt-comments__footer-note {
+  font-size: 11.5px;
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* ── Card button ── */
+
+.icon-btn.yt-card__comments-btn {
+  position: relative;
+}
+
+.icon-btn.yt-card__comments-btn.is-captured {
+  color: var(--text);
+}
+
+/* Comments count on the watch-view button */
+.yt-watch__comments-count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--red-dim);
+  border: 1px solid rgba(229, 9, 20, 0.35);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text2);
+}
+
+.yt-card__comments-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--red);
+  color: var(--on-accent);
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Captured, but the video has no comments: present, not alarming. */
+.yt-card__comments-count--empty {
+  background: var(--surface3);
+  color: var(--text3);
+  box-shadow: none;
+}

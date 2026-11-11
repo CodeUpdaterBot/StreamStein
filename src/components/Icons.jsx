@@ -439,3 +439,88 @@ export const RefreshCwIcon = ({ size = 16 }) => (
     <path d="M8 16H3v5" />
   </svg>
 );
+
+/** Speech bubble — the comments button and viewer. */
+export const CommentsIcon = ({ size = 16, ...props }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+    {...props}
+  >
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />
+  </svg>
+);
+
+/** Filled heart — like counts. */
+export const HeartIcon = ({ size = 13, ...props }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden
+    {...props}
+  >
+    <path d="M12 21s-7.5-4.7-9.3-9A5.4 5.4 0 0 1 12 6.2a5.4 5.4 0 0 1 9.3 5.8C19.5 16.3 12 21 12 21z" />
+  </svg>
+);
+
+/** Verified check badge next to a channel name. */
+export const VerifiedBadgeIcon = ({ size = 12, ...props }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden
+    {...props}
+  >
+    <path d="M12 2l2.4 1.8 3-.2 1 2.8 2.4 1.8-1 2.8 1 2.8-2.4 1.8-1 2.8-3-.2L12 22l-2.4-1.8-3 .2-1-2.8L3.2 15.8l1-2.8-1-2.8L5.6 8.4l1-2.8 3 .2z" />
+    <path d="M8.6 12.2l2.3 2.3 4.6-4.6" stroke="#000" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** Pin — a pinned comment. */
+export const PinIcon = ({ size = 12, ...props }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+    {...props}
+  >
+    <path d="M12 17v5" />
+    <path d="M9 10.8V4h6v6.8l2 3.2H7z" />
+    <path d="M7 14h10" />
+  </svg>
+);
+
+/** Chevron for collapsible threads. */
+export const ChevronDownIcon = ({ size = 14, ...props }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+    {...props}
+  >
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
