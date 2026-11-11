@@ -33,9 +33,11 @@ const COMMENTS_SCHEMA = "streamstein-youtube-comments";
 const COMMENTS_VERSION = 1;
 const SIDECAR_SUFFIX = ".comments.json";
 
-// yt-dlp's own default is 100 comments; a library of 2000 videos needs a sane
-// ceiling that still captures a thread worth reading. Overridable per fetch.
-const DEFAULT_MAX_COMMENTS = 1000;
+// Per-video ceiling. The user asked for complete threads, so the ceiling is high
+// (10k) rather than yt-dlp's 100 default; the library-wide budget lives in the
+// catch-up script, which stops the whole run before this ever becomes the limiting
+// factor for a normal library.
+const DEFAULT_MAX_COMMENTS = 10000;
 /**
  * yt-dlp's own comment ordering. Deliberately not `top`: the sorted endpoints
  * return fewer comments (measured 94 vs 77 and 695 vs 625 on real videos), and the

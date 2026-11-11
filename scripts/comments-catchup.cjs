@@ -5,7 +5,10 @@
  *   node scripts/comments-catchup.cjs [options]
  *
  *     --limit N        stop after N videos (pilot runs)
- *     --max N          comments cap per video (default 1000)
+ *     --max N          comments ceiling PER VIDEO (default 10000)
+ *     --max-total N    comments budget for the whole library (default 1000000);
+ *                      the run stops cleanly when stored total reaches it
+ *     --only-capped    re-fetch only videos a previous run had to cap
  *     --delay MS       base delay between videos (default 3000, jittered ±50%)
  *     --force          refetch even when a sidecar already exists
  *     --dry-run        list what would be fetched, fetch nothing
@@ -41,8 +44,13 @@ const flag = (name) => argv.includes(name);
 
 const LIMIT = Number(argOf("--limit", 0)) || 0;
 const MAX_COMMENTS = Number(argOf("--max", comments.DEFAULT_MAX_COMMENTS));
+// Library-wide budget. The per-video ceiling protects one video; this protects the
+// whole run from ballooning (1M comments is the agreed ceiling for the library).
+const MAX_TOTAL_COMMENTS = Number(argOf("--max-total", 1_000_000));
 const BASE_DELAY_MS = Number(argOf("--delay", 3000));
 const FORCE = flag("--force");
+// Re-fetch only the videos a previous run had to cap, at the new (higher) ceiling.
+const ONLY_CAPPED = flag("--only-capped");
 const DRY_RUN = flag("--dry-run");
 const SORT = argOf("--sort", "library");
 
@@ -190,6 +198,12 @@ if (!FORCE) {
 
 let queue = fetchable.filter((v) => !alreadyCaptured.has(keyOf(v.filePath)));
 
+// Re-capture pass: only the videos a previous run had to cap at the old, lower
+// ceiling. Their sidecars exist, so this deliberately ignores the skip above.
+if (ONLY_CAPPED) {
+  queue = fetchable.filter((v) => state.processed[keyOf(v.filePath)]?.truncated === true);
+}
+
 if (SORT === "new") {
   queue.sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")));
 } else if (SORT === "old") {
@@ -207,7 +221,20 @@ if (LIMIT > 0) queue = queue.slice(0, LIMIT);
 log(
   `start: catalog videos=${videos.length} onDisk=${withFile.length} missingOnDisk=${missing} ` +
     `noUrlSkipped=${noUrl} alreadyCaptured=${alreadyCaptured.size} queue=${queue.length} ` +
-    `maxComments=${MAX_COMMENTS} delay=${BASE_DELAY_MS}ms order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT}${FORCE ? " force" : ""}`,
+    `maxComments=${MAX_COMMENTS} maxTotal=${MAX_TOTAL_COMMENTS} delay=${BASE_DELAY_MS}ms ` +
+    `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT}${FORCE ? " force" : ""}` +
+    `${ONLY_CAPPED ? " onlyCapped" : ""}`,
+);
+
+/**
+ * Library-wide budget, counted across runs: every comment this state file knows
+ * about, plus what is already sitting in sidecars. The per-video ceiling protects one
+ * video from being unbounded; this protects the library as a whole.
+ */
+let storedTotal = Object.values(state.processed).reduce((n, v) => n + (v.stored || 0), 0);
+log(
+  `budget: ${storedTotal.toLocaleString()} comments already stored against a ceiling of ` +
+    `${MAX_TOTAL_COMMENTS.toLocaleString()}`,
 );
 
 if (DRY_RUN) {
@@ -305,6 +332,7 @@ for (const video of queue) {
 
     run.ok += 1;
     run.storedComments += stored;
+    storedTotal += stored;
     if (stored === 0) run.zeroComments += 1;
     run.consecutiveFailures = 0;
     run.lastDelayMs = BASE_DELAY_MS;
@@ -335,10 +363,20 @@ for (const video of queue) {
     queueLength: total,
     index,
     remaining: total - index,
+    storedTotal,
+    maxTotalComments: MAX_TOTAL_COMMENTS,
     processedTotal: Object.keys(state.processed).length,
     failedTotal: Object.keys(state.failures).length,
     updatedAt: new Date().toISOString(),
   });
+
+  if (storedTotal >= MAX_TOTAL_COMMENTS) {
+    log(
+      `budget reached: ${storedTotal.toLocaleString()} comments >= ` +
+        `${MAX_TOTAL_COMMENTS.toLocaleString()} — stopping the run cleanly`,
+    );
+    stopping = true;
+  }
 
   if (index < total && !stopping) {
     const jitter = Math.round(BASE_DELAY_MS * (0.5 + Math.random()));
@@ -354,6 +392,8 @@ writeJson(SUMMARY_FILE, {
   queueLength: total,
   index,
   remaining: total - index,
+  storedTotal,
+  maxTotalComments: MAX_TOTAL_COMMENTS,
   noUrlSkipped: Object.keys(state.skippedNoUrl || {}).length,
   processedTotal: Object.keys(state.processed).length,
   failedTotal: Object.keys(state.failures).length,
@@ -363,7 +403,8 @@ writeJson(SUMMARY_FILE, {
 log(
   `done: ok=${run.ok} (zero-comment videos=${run.zeroComments}) failed=${run.failed} ` +
     `noUrlSkipped=${Object.keys(state.skippedNoUrl || {}).length} ` +
-    `commentsStored=${run.storedComments} in ${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s`,
+    `commentsStored=${run.storedComments} storedTotal=${storedTotal.toLocaleString()} ` +
+    `in ${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s`,
 );
 log(`state: ${STATE_FILE}`);
 log(`summary: ${SUMMARY_FILE}`);
