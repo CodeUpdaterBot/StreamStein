@@ -53,6 +53,15 @@ const FORCE = flag("--force");
 const ONLY_CAPPED = flag("--only-capped");
 const DRY_RUN = flag("--dry-run");
 const SORT = argOf("--sort", "library");
+// Sharding for parallel workers: --shard 0/3, --shard 1/3, --shard 2/3. Written as a
+// single arg because it is passed through a .cmd launcher.
+const SHARD_SPEC = String(argOf("--shard", "0/1"));
+const [SHARD_INDEX, SHARD_COUNT] = SHARD_SPEC.split("/").map((n) => Number(n) || 0);
+if (!Number.isInteger(SHARD_INDEX) || !Number.isInteger(SHARD_COUNT) || SHARD_COUNT < 1 || SHARD_INDEX < 0 || SHARD_INDEX >= SHARD_COUNT) {
+  console.error(`bad --shard "${SHARD_SPEC}" — expected i/N with 0 <= i < N, e.g. 0/3`);
+  process.exit(2);
+}
+const SHARD_SUFFIX = SHARD_COUNT > 1 ? `-shard${SHARD_INDEX + 1}of${SHARD_COUNT}` : "";
 
 const YOUTUBE_FOLDER =
   process.env.STREAMSTEIN_YOUTUBE_FOLDER ||
@@ -69,9 +78,12 @@ function stateDir() {
 }
 
 const STATE_DIR = stateDir();
-const STATE_FILE = path.join(STATE_DIR, "state.json");
-const LOG_FILE = path.join(STATE_DIR, "catchup.log");
-const SUMMARY_FILE = path.join(STATE_DIR, "summary.json");
+const STATE_FILE = path.join(STATE_DIR, `state${SHARD_SUFFIX}.json`);
+const LOG_FILE = path.join(STATE_DIR, `catchup${SHARD_SUFFIX}.log`);
+const SUMMARY_FILE = path.join(STATE_DIR, `summary${SHARD_SUFFIX}.json`);
+// Pre-shard history. A shard has no record of the videos an earlier single-worker run
+// captured, so it seeds its comment budget from there to stay conservative.
+const LEGACY_STATE_FILE = path.join(STATE_DIR, "state.json");
 
 const loadJson = (file, fallback) => {
   try {
@@ -196,12 +208,18 @@ if (!FORCE) {
   }
 }
 
-let queue = fetchable.filter((v) => !alreadyCaptured.has(keyOf(v.filePath)));
+// Sharding happens on the FULL fetchable list, never on "what is left to do": every
+// worker must derive the same assignment from the same list, so a video always belongs
+// to the same worker no matter what has been captured in the meantime. Workers can then
+// run in parallel without ever touching the same video.
+const myShard = fetchable.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX);
 
-// Re-capture pass: only the videos a previous run had to cap at the old, lower
-// ceiling. Their sidecars exist, so this deliberately ignores the skip above.
+let queue = myShard.filter((v) => !alreadyCaptured.has(keyOf(v.filePath)));
+
+// Re-capture pass: only the videos a previous run had to cap at the old, lower ceiling.
+// Their sidecars exist, so this deliberately ignores the skip above.
 if (ONLY_CAPPED) {
-  queue = fetchable.filter((v) => state.processed[keyOf(v.filePath)]?.truncated === true);
+  queue = myShard.filter((v) => state.processed[keyOf(v.filePath)]?.truncated === true);
 }
 
 if (SORT === "new") {
@@ -223,18 +241,26 @@ log(
     `noUrlSkipped=${noUrl} alreadyCaptured=${alreadyCaptured.size} queue=${queue.length} ` +
     `maxComments=${MAX_COMMENTS} maxTotal=${MAX_TOTAL_COMMENTS} delay=${BASE_DELAY_MS}ms ` +
     `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT}${FORCE ? " force" : ""}` +
-    `${ONLY_CAPPED ? " onlyCapped" : ""}`,
+    `${ONLY_CAPPED ? " onlyCapped" : ""}` +
+    `${SHARD_COUNT > 1 ? ` shard=${SHARD_INDEX + 1}/${SHARD_COUNT}` : ""}`,
 );
 
 /**
- * Library-wide budget, counted across runs: every comment this state file knows
- * about, plus what is already sitting in sidecars. The per-video ceiling protects one
- * video from being unbounded; this protects the library as a whole.
+ * Library-wide budget, counted across runs: every comment this state file knows about,
+ * plus what is already sitting in sidecars. The per-video ceiling protects one video from
+ * being unbounded; this protects the library as a whole.
+ *
+ * A sharded worker also seeds from the pre-shard state, because videos captured before
+ * sharding are invisible to it. That over-counts the library total once per worker, which
+ * is the safe direction: the budget stops the run slightly early rather than late.
  */
-let storedTotal = Object.values(state.processed).reduce((n, v) => n + (v.stored || 0), 0);
+const legacyState = SHARD_COUNT > 1 ? loadJson(LEGACY_STATE_FILE, { processed: {} }) : { processed: {} };
+let storedTotal =
+  Object.values(state.processed).reduce((n, v) => n + (v.stored || 0), 0) +
+  Object.values(legacyState.processed || {}).reduce((n, v) => n + (v.stored || 0), 0);
 log(
   `budget: ${storedTotal.toLocaleString()} comments already stored against a ceiling of ` +
-    `${MAX_TOTAL_COMMENTS.toLocaleString()}`,
+    `${MAX_TOTAL_COMMENTS.toLocaleString()}${SHARD_COUNT > 1 ? ` (shard ${SHARD_INDEX + 1}/${SHARD_COUNT}, includes pre-shard history)` : ""}`,
 );
 
 if (DRY_RUN) {

@@ -254,6 +254,67 @@ function writeCommentsDocument(filePath, doc) {
   return filePath;
 }
 
+/**
+ * Cross-process lock around the catalog read-modify-write.
+ *
+ * The catch-up can run several workers in parallel, and the app itself writes the same
+ * catalog when it captures comments on a download. Three read-modify-write cycles
+ * interleaving lose records — a worker reads the catalog, another appends and saves,
+ * the first then saves its stale copy and the second's record is gone. The lock is a
+ * create-exclusive file beside the catalog, which is atomic on Windows and POSIX alike,
+ * with a stale-lock steal so a killed process cannot wedge the library forever.
+ */
+const CATALOG_LOCK_STALE_MS = 60_000;
+const CATALOG_LOCK_WAIT_MS = 20_000;
+
+function withCatalogLock(catalogPath, fn) {
+  const lockPath = `${catalogPath}.lock`;
+  const deadline = Date.now() + CATALOG_LOCK_WAIT_MS;
+  let fd = null;
+
+  for (;;) {
+    try {
+      fd = fs.openSync(lockPath, "wx");
+      break;
+    } catch (err) {
+      if (err?.code !== "EEXIST") throw err;
+      // Steal a lock whose owner died mid-write.
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > CATALOG_LOCK_STALE_MS) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        continue; // lock vanished: retry immediately
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`catalog lock busy for ${CATALOG_LOCK_WAIT_MS}ms: ${lockPath}`);
+      }
+      // Busy-wait in short sleeps; this is a file-system lock, not a hot path.
+      const until = Date.now() + 120;
+      while (Date.now() < until) {
+        /* spin briefly */
+      }
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* already closed */
+    }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch {
+      /* someone stole it after the stale window */
+    }
+  }
+}
+
 function readCommentsFile(filePath) {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -597,6 +658,8 @@ function registerCommentsAsset({ catalogPath, youtubeFolder, videoFilePath, targ
   const file = catalogPath || catalogPathFor(youtubeFolder);
   if (!file) return { ok: false, error: "No catalog path." };
 
+  // Serialised against other workers and the app — see withCatalogLock.
+  return withCatalogLock(file, () => {
   const catalog = loadCatalogFile(file);
   const records = Array.isArray(catalog.records) ? catalog.records : [];
   const stat = fs.statSync(target);
@@ -659,6 +722,7 @@ function registerCommentsAsset({ catalogPath, youtubeFolder, videoFilePath, targ
   catalog.records = records;
   saveCatalogFile(file, catalog);
   return { ok: true, recordId: record.id, record };
+  });
 }
 
 /** Remove a comments sidecar and its catalog record. */
@@ -678,6 +742,7 @@ function deleteCommentsForVideo({ youtubeFolder, catalogPath, videoFilePath, com
 
   if (file && target) {
     try {
+      withCatalogLock(file, () => {
       const catalog = loadCatalogFile(file);
       const before = Array.isArray(catalog.records) ? catalog.records.length : 0;
       catalog.records = (catalog.records || []).filter(
@@ -692,6 +757,7 @@ function deleteCommentsForVideo({ youtubeFolder, catalogPath, videoFilePath, com
         saveCatalogFile(file, catalog);
         result.recordRemoved = true;
       }
+      });
     } catch (err) {
       result.catalogError = err?.message || String(err);
     }
@@ -768,6 +834,7 @@ module.exports = {
   registerCommentsAsset,
   deleteCommentsForVideo,
   catalogPathFor,
+  withCatalogLock,
   resolveYtDlpPath,
   ytDlpCandidates,
   versionRank,

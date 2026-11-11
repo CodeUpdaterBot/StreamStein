@@ -19,10 +19,10 @@ cd /d "C:\Users\PC\Documents\Coding Projects\StreamStein"
 set NODE="C:\Program Files\nodejs\node.exe"
 
 echo [launcher] capped re-capture pass at %DATE% %TIME%
-%NODE% scripts\comments-catchup.cjs --only-capped
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-comments-catchup.ps1" %*
 
 echo [launcher] main library pass at %DATE% %TIME%
-%NODE% scripts\comments-catchup.cjs
+rem sharded workers are launched by run-comments-catchup.ps1 above
 
 echo [launcher] finished at %DATE% %TIME%
 endlocal
