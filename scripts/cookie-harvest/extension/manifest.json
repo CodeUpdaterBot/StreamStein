@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "StreamStein cookie harvest (temporary)",
+  "version": "1.0.0",
+  "description": "One-shot: exports YouTube/Google cookies to a local listener, then stops. Installed only for the duration of a cookie export.",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://*.youtube.com/*", "https://*.google.com/*", "http://127.0.0.1:8799/*"],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -11,17 +11,17 @@
 
     Sharding: worker i takes videos where (index in the full, sorted video list) % N == i.
     The assignment is computed from the full list, never from "what is left", so a video
-    always belongs to the same worker no matter what has been captured meanwhile — the
+    always belongs to the same worker no matter what has been captured meanwhile - the
     workers cannot collide. Each worker keeps its own state/summary/log
     (state-shard1of3.json, catchup-shard1of3.log, ...), and catalog writes are serialised
     by a lock file (withCatalogLock in src/ipc/youtubeComments.js).
 
-    Progress lives in %APPDATA%\streamstein\comments-catchup — read it, don't poll a process.
+    Progress lives in %APPDATA%\streamstein\comments-catchup - read it, don't poll a process.
 #>
 
 param(
     # Number of parallel workers. Measured 2026-11-11: 3 workers reached ~830 videos/h at
-    # best, but ALSO earned HTTP 403s from YouTube's comment API after ~45 minutes — so
+    # best, but ALSO earned HTTP 403s from YouTube's comment API after ~45 minutes - so
     # 3 is not free speed. 2 is the current recommendation for a long run; the workers
     # coordinate through a shared cooldown file when they do get blocked.
     [int]$Workers = 3,

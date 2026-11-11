@@ -134,6 +134,13 @@ const keyOf = (filePath) => path.normalize(filePath).toLowerCase();
 // turns "three workers hammering a blocked endpoint" into one polite queue.
 const COOLDOWN_FILE = path.join(STATE_DIR, "cooldown.json");
 const THROTTLE_COOLDOWN_MS = 10 * 60 * 1000;
+// Rotating the client set is the FIRST response to a 403, not waiting: YouTube grants
+// comment access per client and blocks them individually (measured 2026-11-11: web and ios
+// were 403 while tv/android_vr/mweb still answered). So a blocked client set is swapped for
+// a fresh one, and only a short pause is needed while that happens. The long escalating
+// cooldown stays for the case where EVERY set is blocked, which is a real IP-level flag.
+const CLIENT_SETS = ["tv,android_vr,mweb", "web,ios,android", "mweb,tv", "android_vr"];
+const ROTATE_COOLDOWN_MS = 90 * 1000;
 const THROTTLE_PATTERN =
   /http error 403|forbidden|too many requests|http error 429|sign in to confirm you.?re not a bot/i;
 
@@ -141,6 +148,32 @@ function readCooldown() {
   const cd = loadJson(COOLDOWN_FILE, null);
   if (!cd || typeof cd.until !== "number") return null;
   return cd;
+}
+
+// ── Client rotation ─────────────────────────────────────────────────────────
+// Kept in its own file so rotating never clobbers an in-flight cooldown (and vice versa).
+const CLIENT_SET_FILE = path.join(STATE_DIR, "client-set.json");
+
+function clientSetIndex() {
+  const d = loadJson(CLIENT_SET_FILE, null);
+  return d && Number.isFinite(d.index) ? d.index : 0;
+}
+
+/** The client set every worker should use right now. */
+function activeClientSet() {
+  return CLIENT_SETS[clientSetIndex() % CLIENT_SETS.length];
+}
+
+/** Switch every worker to the next client set; returns the one now active. */
+function rotateClientSet(reason) {
+  const next = clientSetIndex() + 1;
+  writeJson(CLIENT_SET_FILE, {
+    index: next,
+    reason,
+    setBy: SHARD_SUFFIX || "single",
+    at: new Date().toISOString(),
+  });
+  return CLIENT_SETS[next % CLIENT_SETS.length];
 }
 
 function setCooldown(ms, reason) {
@@ -320,7 +353,8 @@ log(
   `start: catalog videos=${videos.length} onDisk=${withFile.length} missingOnDisk=${missing} ` +
     `noUrlSkipped=${noUrl} alreadyCaptured=${alreadyCaptured.size} queue=${queue.length} ` +
     `maxComments=${MAX_COMMENTS} maxTotal=${MAX_TOTAL_COMMENTS} delay=${BASE_DELAY_MS}ms ` +
-    `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT}${FORCE ? " force" : ""}` +
+    `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT} clients=[${activeClientSet()}]` +
+    `${FORCE ? " force" : ""}` +
     `${ONLY_CAPPED ? " onlyCapped" : ""}` +
     `${SHARD_COUNT > 1 ? ` shard=${SHARD_INDEX + 1}/${SHARD_COUNT}` : ""}` +
     `${permanentSkips.size ? ` permanentSkipped=${permanentSkips.size}` : ""}`,
@@ -417,19 +451,28 @@ for (const video of queue) {
       channelName: video.channelName || undefined,
       youtubeFolder: YOUTUBE_FOLDER,
       maxComments: MAX_COMMENTS,
+      clients: activeClientSet(),
     });
     if (!result.ok) {
       const detail = `${result.error || ""} ${result.stderr || ""}`;
       if (THROTTLE_PATTERN.test(detail)) {
         throttled = true;
         maxAttempts = 3;
+        const blockedSet = activeClientSet();
+        const nextSet = rotateClientSet(`403 on ${blockedSet}`);
+        // A fresh client set normally answers straight away, so pause only long enough to
+        // let the other workers notice the rotation. Once every set has been tried, the
+        // long escalating cooldown takes over — that means a real IP-level flag, not one
+        // blocked client.
+        const stillRotating = clientSetIndex() <= CLIENT_SETS.length;
+        const wait = stillRotating ? ROTATE_COOLDOWN_MS : THROTTLE_COOLDOWN_MS;
         setCooldown(
-          THROTTLE_COOLDOWN_MS,
-          `HTTP 403/429 from YouTube's comment API (${SHARD_SUFFIX || "single worker"})`,
+          wait,
+          `HTTP 403/429 on ${blockedSet} -> rotating all workers to ${nextSet}`,
         );
         log(
-          `throttled by YouTube — all workers cooling down ${THROTTLE_COOLDOWN_MS / 60000} min ` +
-            `before retrying ${label}`,
+          `throttled on client set [${blockedSet}] — rotating all workers to [${nextSet}] ` +
+            `and pausing ${Math.round(wait / 1000)}s before retrying ${label}`,
         );
       }
       if (attempts < maxAttempts) {

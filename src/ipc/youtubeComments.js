@@ -420,6 +420,18 @@ const PRINT_FIELDS =
   "%(.{id,title,channel,channel_id,uploader,upload_date,duration,comment_count,comments})j";
 
 /**
+ * YouTube serves the comment API per CLIENT, and blocks them one at a time.
+ *
+ * Measured 2026-11-11: with the IP flagged, `web` and `ios` returned
+ * "HTTP Error 403: Forbidden" while `tv`, `android_vr` and `mweb` still answered. yt-dlp
+ * uses the FIRST client in this list for every request including comments, so a single
+ * blocked client poisons the whole run — which is exactly how a long run died after ~45
+ * minutes while the surviving clients sat unused. The order therefore matters, and callers
+ * can rotate through a fresh set (see CLIENT_SETS in scripts/comments-catchup.cjs).
+ */
+const DEFAULT_CLIENT_SET = "tv,android_vr,mweb,ios,web";
+
+/**
  * Optional cookie file for yt-dlp.
  *
  * YouTube rate-limits anonymous comment API access with HTTP 403 once it decides the IP
@@ -458,7 +470,7 @@ function resolveCookiesFile() {
   return null;
 }
 
-function buildArgs({ watchUrl, maxComments, sort }) {
+function buildArgs({ watchUrl, maxComments, sort, clients }) {
   const args = [
     "--skip-download",
     "--no-playlist",
@@ -466,10 +478,10 @@ function buildArgs({ watchUrl, maxComments, sort }) {
     "--write-comments",
     "--no-write-info-json",
     "--newline",
-    // Same client hint the bridge uses for downloads; the comment API is served
-    // fine through it and it avoids the web-client SABR paths.
+    // Comment access is granted per client, and blocked per client — see
+    // DEFAULT_CLIENT_SET above for the measurements behind this order.
     "--extractor-args",
-    "youtube:player_client=android,ios,tv,web",
+    `youtube:player_client=${clients || DEFAULT_CLIENT_SET}`,
   ];
   const cookiesFile = resolveCookiesFile();
   if (cookiesFile) {
@@ -510,6 +522,7 @@ function fetchCommentsForVideo(options = {}) {
     catalogPath,
     maxComments = DEFAULT_MAX_COMMENTS,
     sort = DEFAULT_COMMENT_SORT,
+    clients = null,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     ytDlpCommand,
     onProgress,
@@ -534,7 +547,7 @@ function fetchCommentsForVideo(options = {}) {
     const ytDlpPath = resolved.path;
     const ytDlpResolvedVersion = resolved.version;
     const target = commentsPathFor(videoFilePath);
-    const args = buildArgs({ watchUrl: url, maxComments, sort });
+    const args = buildArgs({ watchUrl: url, maxComments, sort, clients });
     const started = Date.now();
     const progress = (phase, detail) => {
       try {
