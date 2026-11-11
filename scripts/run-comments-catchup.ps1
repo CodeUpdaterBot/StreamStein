@@ -20,14 +20,19 @@
 #>
 
 param(
-    # Number of parallel workers. 3 is the sweet spot measured on this machine: ~413
-    # videos/h combined versus ~47 videos/h single, without tripping YouTube's throttling.
+    # Number of parallel workers. Measured 2026-11-11: 3 workers reached ~830 videos/h at
+    # best, but ALSO earned HTTP 403s from YouTube's comment API after ~45 minutes — so
+    # 3 is not free speed. 2 is the current recommendation for a long run; the workers
+    # coordinate through a shared cooldown file when they do get blocked.
     [int]$Workers = 3,
     # Per-video comment ceiling and library-wide budget (see comments-catchup.cjs).
     [int]$MaxPerVideo = 10000,
     [int]$MaxTotal = 10000000,
     # 0 = run all shards in this session; >0 = re-capture just that many capped videos first.
-    [int]$CappedPass = 0
+    [int]$CappedPass = 0,
+    # Wait this many minutes before starting, so a launch can be parked to let YouTube's
+    # rate limit decay. The waiting process is detached, so it survives this session.
+    [int]$DelayMinutes = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +48,11 @@ New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 if ($CappedPass -gt 0) {
     Write-Output "re-capturing up to $CappedPass capped videos first..."
     & $node (Join-Path $repo 'scripts\comments-catchup.cjs') --only-capped --max $MaxPerVideo --max-total $MaxTotal
+}
+
+if ($DelayMinutes -gt 0) {
+    Write-Output "parked: waiting $DelayMinutes min for YouTube's rate limit to decay before launching..."
+    Start-Sleep -Seconds ($DelayMinutes * 60)
 }
 
 Write-Output "launching $Workers sharded workers..."

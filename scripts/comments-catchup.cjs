@@ -125,14 +125,76 @@ state.startedAt = state.startedAt || new Date().toISOString();
 
 const keyOf = (filePath) => path.normalize(filePath).toLowerCase();
 
+// ── Throttle coordination ────────────────────────────────────────────────────
+// Running several workers in parallel can earn HTTP 403s from YouTube's comment API
+// (measured 2026-11-11: after ~45 min of 3 workers, all three shards started returning
+// "Unable to download API page: HTTP Error 403: Forbidden"). A per-worker backoff is not
+// enough — the workers keep each other blocked. So a cooldown is written to a shared file
+// that EVERY worker checks before each fetch, and they all wait it out together. That
+// turns "three workers hammering a blocked endpoint" into one polite queue.
+const COOLDOWN_FILE = path.join(STATE_DIR, "cooldown.json");
+const THROTTLE_COOLDOWN_MS = 10 * 60 * 1000;
+const THROTTLE_PATTERN =
+  /http error 403|forbidden|too many requests|http error 429|sign in to confirm you.?re not a bot/i;
+
+function readCooldown() {
+  const cd = loadJson(COOLDOWN_FILE, null);
+  if (!cd || typeof cd.until !== "number") return null;
+  return cd;
+}
+
+function setCooldown(ms, reason) {
+  // If we get blocked again almost immediately after the previous cooldown expired, the
+  // pause was too short — escalate rather than cycle 10 minutes at a time making no
+  // progress. Capped at 30 min so the run always resumes on its own.
+  const prev = readCooldown();
+  const sinceExpiry = prev?.until ? Date.now() - prev.until : Infinity;
+  const escalate = sinceExpiry >= 0 && sinceExpiry < 5 * 60 * 1000;
+  const wait = escalate ? Math.min(ms * 2, 30 * 60 * 1000) : ms;
+
+  const until = Date.now() + wait;
+  if (prev && prev.until > until) return; // an existing longer cooldown wins
+  writeJson(COOLDOWN_FILE, {
+    until,
+    reason,
+    waitMs: wait,
+    escalated: escalate,
+    setBy: SHARD_SUFFIX || "single",
+    at: new Date().toISOString(),
+  });
+}
+
+/** Block until any shared cooldown expires, logging once per wait. */
+async function waitForCooldown() {
+  for (;;) {
+    const cd = readCooldown();
+    if (!cd || cd.until <= Date.now()) return;
+    const wait = cd.until - Date.now();
+    if (wait > 1500) {
+      log(
+        `cooldown active: ${Math.ceil(wait / 1000)}s left (${cd.reason}, set by ${cd.setBy}) — waiting`,
+      );
+    }
+    await sleep(Math.min(wait, 30_000));
+  }
+}
+
 /** Turn a yt-dlp failure into a short, human-readable permanent-skip reason. */
 function shortPermanentReason(detail) {
-  const membersOnly = /members-only|join this channel/i.test(detail);
-  if (membersOnly) return "members-only video (needs channel membership cookies)";
-  const unavailable = /video unavailable|removed by the uploader|no longer available|this video is not available/i.test(detail);
-  if (unavailable) return "video unavailable (removed or region-blocked)";
-  const privateVideo = /private video/i.test(detail);
-  if (privateVideo) return "private video";
+  if (/members-only|join this channel/i.test(detail)) {
+    return "members-only video (needs channel membership cookies)";
+  }
+  if (/sign in to confirm your age|age-restricted|may be inappropriate for some users/i.test(detail)) {
+    return "age-restricted (needs YouTube cookies)";
+  }
+  if (
+    /video unavailable|video is unavailable|removed by the uploader|no longer available|this video is not available/i.test(
+      detail,
+    )
+  ) {
+    return "video unavailable (removed or region-blocked)";
+  }
+  if (/private video/i.test(detail)) return "private video";
   return "permanently unavailable to yt-dlp";
 }
 
@@ -296,6 +358,7 @@ const run = {
   zeroComments: 0,
   failed: 0,
   skippedPermanent: 0,
+  throttled: 0,
   storedComments: 0,
   consecutiveFailures: 0,
   lastDelayMs: BASE_DELAY_MS,
@@ -340,8 +403,12 @@ for (const video of queue) {
 
   let attempts = 0;
   let result = null;
-  while (attempts < 2 && !result?.ok) {
+  let maxAttempts = 2;
+  let throttled = false;
+  while (attempts < maxAttempts && !result?.ok) {
     attempts += 1;
+    // Never start a fetch while the shared cooldown is active.
+    await waitForCooldown();
     result = await comments.fetchCommentsForVideo({
       videoFilePath: video.filePath,
       videoId: video.videoId || undefined,
@@ -351,9 +418,24 @@ for (const video of queue) {
       youtubeFolder: YOUTUBE_FOLDER,
       maxComments: MAX_COMMENTS,
     });
-    if (!result.ok && attempts < 2) {
-      log(`retry (${attempts}/2) ${label}: ${result.error}`);
-      await sleep(5000);
+    if (!result.ok) {
+      const detail = `${result.error || ""} ${result.stderr || ""}`;
+      if (THROTTLE_PATTERN.test(detail)) {
+        throttled = true;
+        maxAttempts = 3;
+        setCooldown(
+          THROTTLE_COOLDOWN_MS,
+          `HTTP 403/429 from YouTube's comment API (${SHARD_SUFFIX || "single worker"})`,
+        );
+        log(
+          `throttled by YouTube — all workers cooling down ${THROTTLE_COOLDOWN_MS / 60000} min ` +
+            `before retrying ${label}`,
+        );
+      }
+      if (attempts < maxAttempts) {
+        log(`retry (${attempts}/${maxAttempts}) ${label}: ${result.error}`);
+        await sleep(5000);
+      }
     }
   }
 
@@ -396,7 +478,7 @@ for (const video of queue) {
     // channel to get access to members-only content").
     const detail = `${result?.error || ""} ${result?.stderr || ""}`;
     const permanentPattern =
-      /members-only|join this channel|video unavailable|private video|removed by the uploader|no longer available|not available in your country|this video is not available/i;
+      /members-only|join this channel|sign in to confirm your age|age-restricted|may be inappropriate for some users|video unavailable|video is unavailable|private video|removed by the uploader|no longer available|not available in your country|this video is not available/i;
     if (permanentPattern.test(detail)) {
       const reason = shortPermanentReason(detail);
       state.skippedPermanent = state.skippedPermanent || {};
@@ -410,6 +492,27 @@ for (const video of queue) {
       run.skippedPermanent += 1;
       run.consecutiveFailures = 0;
       log(`[${index}/${total}] SKIP ${label}: ${reason}`);
+    } else if (throttled) {
+      // Retries exhausted while YouTube was refusing us with 403/429. That is a rate
+      // limit, not a defect in the video, so it must not be counted as a failure — but it
+      // must stay visible and retryable. The shared cooldown is already set, so the next
+      // fetch (this worker or any other) waits it out instead of deepening the block.
+      run.throttled = (run.throttled || 0) + 1;
+      state.throttled = state.throttled || {};
+      state.throttled[key] = {
+        videoId: video.videoId || null,
+        fileName: video.fileName,
+        error: result?.error || "unknown error",
+        stderrTail: String(result?.stderr || "").trim().slice(-400) || null,
+        at: new Date().toISOString(),
+        attempts,
+      };
+      delete state.failures[key];
+      run.consecutiveFailures = 0;
+      log(
+        `[${index}/${total}] THROTTLED ${label}: ${result?.error || "unknown error"} ` +
+          `(rate limit — will retry on the next pass)`,
+      );
     } else {
       run.failed += 1;
       run.consecutiveFailures += 1;
@@ -417,6 +520,10 @@ for (const video of queue) {
         videoId: video.videoId || null,
         fileName: video.fileName,
         error: result?.error || "unknown error",
+        // Keep the tail of yt-dlp's own output: it is the only way to tell a transient
+        // failure from a permanent class the classifier has not learned yet, without
+        // re-running the fetch by hand.
+        stderrTail: String(result?.stderr || "").trim().slice(-400) || null,
         at: new Date().toISOString(),
         attempts,
       };
@@ -436,6 +543,7 @@ for (const video of queue) {
     maxTotalComments: MAX_TOTAL_COMMENTS,
     noUrlSkipped: Object.keys(state.skippedNoUrl || {}).length,
     permanentSkipped: Object.keys(state.skippedPermanent || {}).length,
+    throttledTotal: Object.keys(state.throttled || {}).length,
     processedTotal: Object.keys(state.processed).length,
     failedTotal: Object.keys(state.failures).length,
     updatedAt: new Date().toISOString(),
@@ -466,6 +574,7 @@ writeJson(SUMMARY_FILE, {
   storedTotal,
   maxTotalComments: MAX_TOTAL_COMMENTS,
   noUrlSkipped: Object.keys(state.skippedNoUrl || {}).length,
+  throttledTotal: Object.keys(state.throttled || {}).length,
   processedTotal: Object.keys(state.processed).length,
   failedTotal: Object.keys(state.failures).length,
   updatedAt: new Date().toISOString(),
@@ -473,6 +582,7 @@ writeJson(SUMMARY_FILE, {
 
 log(
   `done: ok=${run.ok} (zero-comment videos=${run.zeroComments}) failed=${run.failed} ` +
+    `throttled=${Object.keys(state.throttled || {}).length} ` +
     `noUrlSkipped=${Object.keys(state.skippedNoUrl || {}).length} ` +
     `permanentSkipped=${Object.keys(state.skippedPermanent || {}).length} ` +
     `commentsStored=${run.storedComments} storedTotal=${storedTotal.toLocaleString()} ` +

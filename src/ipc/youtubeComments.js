@@ -419,6 +419,45 @@ function resolveYtDlpPath(explicit) {
 const PRINT_FIELDS =
   "%(.{id,title,channel,channel_id,uploader,upload_date,duration,comment_count,comments})j";
 
+/**
+ * Optional cookie file for yt-dlp.
+ *
+ * YouTube rate-limits anonymous comment API access with HTTP 403 once it decides the IP
+ * is a bot (measured 2026-11-11: a 3-worker run earned a hard 403 that survived a
+ * 20-minute pause). A logged-in cookies.txt restores access and is also the only way to
+ * reach age-restricted and members-only videos.
+ *
+ * Note on getting the file on this machine: `--cookies-from-browser chrome` CANNOT work
+ * here. Chrome 157 encrypts cookies with App-Bound Encryption, so the DB cannot be
+ * decrypted out-of-process, and Chrome 136+ refuses remote debugging on the default
+ * profile — so the file has to be produced inside the browser (a "cookies.txt"
+ * exporter extension) and saved to one of the paths below.
+ */
+function resolveCookiesFile() {
+  const candidates = [
+    process.env.STREAMSTEIN_YT_COOKIES,
+    process.env.APPDATA ? path.join(process.env.APPDATA, "streamstein", "youtube-cookies.txt") : null,
+    path.join(process.env.USERPROFILE || process.env.HOME || ".", "streamstein-cookies.txt"),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      // A cookies.txt that lost its login (or was truncated to the header) must not be
+      // passed to yt-dlp: it silently degrades to anonymous access and looks like the
+      // cookie support "does not work".
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && stat.size > 512) {
+        const head = fs.readFileSync(candidate, "utf8").slice(0, 4096);
+        if (/\tSID\t|\t__Secure-1PSID\t|\tLOGIN_INFO\t/.test(head) || head.includes(".youtube.com")) {
+          return candidate;
+        }
+      }
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return null;
+}
+
 function buildArgs({ watchUrl, maxComments, sort }) {
   const args = [
     "--skip-download",
@@ -432,6 +471,10 @@ function buildArgs({ watchUrl, maxComments, sort }) {
     "--extractor-args",
     "youtube:player_client=android,ios,tv,web",
   ];
+  const cookiesFile = resolveCookiesFile();
+  if (cookiesFile) {
+    args.push("--cookies", cookiesFile);
+  }
   if (Number.isFinite(maxComments) && maxComments > 0) {
     args.push(
       "--extractor-args",
