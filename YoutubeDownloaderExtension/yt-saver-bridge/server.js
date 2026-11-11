@@ -747,6 +747,11 @@ let serverConfig = {
   ytDlpRemoteComponentsSpec: "ejs:github",
   // Optional workaround: open the watch page in a real browser tab before running yt-dlp.
   ytDlpWarmupEnabled: false,
+  // Capture a newly downloaded video's comments into the library (`<video>.comments.json`
+  // beside the video + a catalog record). The Streamstein main process does the fetching —
+  // it owns that code — and only when this is on, which is why the flag also rides along
+  // with the catalog-updated notification it reacts to.
+  saveCommentsOnDownload: false,
   ytDlpWarmupDelayMs: 2500,
   ytDlpWarmupCooldownMs: 15000,
   ytDlpWarmupBrowserCommand: "",
@@ -867,6 +872,7 @@ fastify.get("/api/config", async () => {
     ytDlpWarmupCooldownMs: clampNumber(serverConfig.ytDlpWarmupCooldownMs, { min: 0, max: 10 * 60 * 1000, fallback: 15000 }),
     ytDlpWarmupBrowserCommand:
       typeof serverConfig.ytDlpWarmupBrowserCommand === "string" ? serverConfig.ytDlpWarmupBrowserCommand : "",
+    saveCommentsOnDownload: serverConfig.saveCommentsOnDownload === true,
     whisperCommand: serverConfig.whisperCommand || detected?.whisperCommand || "",
     whisperAutoDetected: Boolean(detected?.autoDetected),
     whisperAvailable: Boolean(detected?.whisper),
@@ -917,6 +923,10 @@ fastify.post("/api/config", async (request) => {
           : "ejs:github";
     const ytDlpWarmupEnabled =
       typeof body.ytDlpWarmupEnabled === "boolean" ? body.ytDlpWarmupEnabled : serverConfig.ytDlpWarmupEnabled === true;
+    const saveCommentsOnDownload =
+      typeof body.saveCommentsOnDownload === "boolean"
+        ? body.saveCommentsOnDownload
+        : serverConfig.saveCommentsOnDownload === true;
     const ytDlpWarmupDelayMs = clampNumber(
       typeof body.ytDlpWarmupDelayMs !== "undefined" ? body.ytDlpWarmupDelayMs : serverConfig.ytDlpWarmupDelayMs,
       { min: 0, max: 15000, fallback: 2500 }
@@ -968,6 +978,7 @@ fastify.post("/api/config", async (request) => {
     serverConfig.ytDlpWarmupDelayMs = ytDlpWarmupDelayMs;
     serverConfig.ytDlpWarmupCooldownMs = ytDlpWarmupCooldownMs;
     serverConfig.ytDlpWarmupBrowserCommand = ytDlpWarmupBrowserCommand;
+    serverConfig.saveCommentsOnDownload = saveCommentsOnDownload === true;
     serverConfig.whisperCommand = whisperCommand;
     applyBundledToolDefaults();
     if (whisperCommand) {
@@ -1012,6 +1023,7 @@ fastify.post("/api/config", async (request) => {
       ytDlpWarmupBrowserCommand:
         typeof serverConfig.ytDlpWarmupBrowserCommand === "string" ? serverConfig.ytDlpWarmupBrowserCommand : "",
       whisperCommand: serverConfig.whisperCommand || "",
+      saveCommentsOnDownload: serverConfig.saveCommentsOnDownload === true,
       downloadRoots: getDownloadRoots(),
       librarySummary: summarizeLibrary()
     };
@@ -2115,6 +2127,7 @@ function persistServerConfig() {
           fallback: 15000
         }),
         ytDlpWarmupBrowserCommand: serverConfig.ytDlpWarmupBrowserCommand || "",
+        saveCommentsOnDownload: serverConfig.saveCommentsOnDownload === true,
         whisperCommand: serverConfig.whisperCommand || "",
         openaiKey: serverConfig.openaiKey || "",
         openaiBaseUrl: serverConfig.openaiBaseUrl || "",
@@ -3775,6 +3788,10 @@ function registerLibraryFile(meta, options = {}) {
         libraryEntryId: entry.id
       });
       notifyYoutubeCatalogUpdated({
+        // The file path lets the app capture comments without a catalog lookup, and the
+        // flag tells it whether the user asked for comment capture with downloads.
+        path: normalizedPath,
+        saveComments: serverConfig.saveCommentsOnDownload === true,
         videoId: entry.videoId || null,
         title: entry.title || null,
         assetType: meta.type === "transcript" ? "transcript" : meta.type === "audio" ? "audio" : "video",

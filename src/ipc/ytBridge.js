@@ -71,7 +71,71 @@ function handleBridgeStdoutLine(line) {
   const detail = parseCatalogUpdatedLine(trimmed);
   if (detail) {
     broadcastYoutubeCatalogUpdated(detail);
+    maybeCaptureComments(detail);
   }
+}
+
+// ── Comment capture on download ──────────────────────────────────────────────
+// A finished download arrives as a catalog-updated line. When the user has asked for
+// comment capture (extension toggle → bridge config → `saveComments` on the
+// notification), the fetch happens HERE, in the app, because this process owns that
+// code (src/ipc/youtubeComments.js) — so there is one implementation of the sidecar
+// format whether the capture came from a download, the Comments button, or the bulk
+// catch-up script.
+//
+// Serialised deliberately: a channel download finishing ten videos must not start ten
+// yt-dlp comment scrapes at once.
+const COMMENT_CAPTURE_SETTLE_MS = 8000;
+
+const _commentQueue = [];
+let _commentWorker = null;
+
+function maybeCaptureComments(detail) {
+  if (!detail || detail.assetType !== "video") return;
+  if (detail.saveComments !== true) return;
+  if (!detail.path) return;
+  _commentQueue.push({
+    filePath: detail.path,
+    videoId: detail.videoId || null,
+    title: detail.title || null,
+    queuedAt: Date.now(),
+  });
+  startCommentWorker();
+}
+
+function startCommentWorker() {
+  if (_commentWorker) return;
+  _commentWorker = (async () => {
+    try {
+      const { fetchCommentsForVideo } = require("./youtubeComments");
+      while (_commentQueue.length > 0) {
+        const item = _commentQueue.shift();
+        // Give the downloader a moment to finish writing and moving the file.
+        const settle = Math.max(0, COMMENT_CAPTURE_SETTLE_MS - (Date.now() - item.queuedAt));
+        if (settle > 0) await new Promise((resolve) => setTimeout(resolve, settle));
+        try {
+          const result = await fetchCommentsForVideo({
+            videoFilePath: item.filePath,
+            videoId: item.videoId || undefined,
+            title: item.title || undefined,
+            youtubeFolder: getResolvedLibraryPaths().youtube || undefined,
+          });
+          if (result?.ok) {
+            broadcastYoutubeCatalogUpdated({
+              videoId: item.videoId || null,
+              assetType: "comments",
+              source: "comments-capture",
+              path: result.path || null,
+            });
+          }
+        } catch {
+          // A failed comment capture must never break downloading.
+        }
+      }
+    } finally {
+      _commentWorker = null;
+    }
+  })();
 }
 
 let _child = null;

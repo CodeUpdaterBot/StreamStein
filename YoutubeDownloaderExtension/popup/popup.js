@@ -301,6 +301,10 @@ const DEFAULT_SETTINGS = {
   ffmpegPath: "",
   maxQuality: "1080", // 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
   downloadTranscripts: true,
+  // Capture each downloaded video's comments (sidecar + catalog record). Off by
+  // default: it adds a comment fetch to every download. Flipped on in the
+  // extension's settings pane; the bridge passes it to the app with each download.
+  downloadComments: false,
   ytDlpCookiesFromBrowser: "",
   ytDlpCookiesFile: "",
   ytDlpWarmupEnabled: false,
@@ -354,6 +358,7 @@ function saveSettings(newSettings, callback) {
       ? newSettings.maxQuality
       : DEFAULT_SETTINGS.maxQuality,
     downloadTranscripts: Boolean(newSettings.downloadTranscripts),
+    downloadComments: Boolean(newSettings.downloadComments),
     ytDlpCookiesFromBrowser:
       typeof newSettings.ytDlpCookiesFromBrowser === "string"
         ? newSettings.ytDlpCookiesFromBrowser.trim()
@@ -3307,6 +3312,7 @@ const settingsMaxQuality = document.getElementById("settings-max-quality");
 const settingsSaveBtn = document.getElementById("settings-save");
 const settingsResetBtn = document.getElementById("settings-reset");
 const settingsDownloadTranscripts = document.getElementById("settings-download-transcripts");
+const settingsDownloadComments = document.getElementById("settings-download-comments");
 const settingsYtDlpCookiesBrowser = document.getElementById("settings-ytdlp-cookies-browser");
 const settingsYtDlpCookiesFile = document.getElementById("settings-ytdlp-cookies-file");
 const settingsYtDlpWarmupEnabled = document.getElementById("settings-ytdlp-warmup-enabled");
@@ -3324,6 +3330,9 @@ function applySettingsToUI() {
   if (settingsWhisperCommand) settingsWhisperCommand.value = appSettings.whisperCommand || "";
   if (settingsDownloadTranscripts) {
     settingsDownloadTranscripts.checked = Boolean(appSettings.downloadTranscripts);
+  }
+  if (settingsDownloadComments) {
+    settingsDownloadComments.checked = Boolean(appSettings.downloadComments);
   }
   if (settingsYtDlpCookiesBrowser) {
     settingsYtDlpCookiesBrowser.value = appSettings.ytDlpCookiesFromBrowser || "";
@@ -3355,6 +3364,7 @@ function readSettingsFromUI() {
     ffmpegPath: settingsFfmpegPath?.value || "",
     maxQuality: settingsMaxQuality?.value || DEFAULT_SETTINGS.maxQuality,
     downloadTranscripts: settingsDownloadTranscripts?.checked || false,
+    downloadComments: settingsDownloadComments?.checked || false,
     ytDlpCookiesFromBrowser: settingsYtDlpCookiesBrowser?.value || "",
     ytDlpCookiesFile: settingsYtDlpCookiesFile?.value || "",
     ytDlpWarmupEnabled: settingsYtDlpWarmupEnabled?.checked || false,
@@ -4388,7 +4398,10 @@ async function applyServerConfig(existingBridgeConfig = null) {
         // Warm-up is handled in the Chrome extension (background tab open/close)
         // to ensure it happens in the user's real Chrome profile.
         ytDlpWarmupEnabled: false,
-        whisperCommand: appSettings.whisperCommand || bridgeConfig?.whisperCommand || ""
+        whisperCommand: appSettings.whisperCommand || bridgeConfig?.whisperCommand || "",
+        // The Streamstein main process reads this to decide whether a finished download
+        // should capture the video's comments (see saveCommentsOnDownload in server.js).
+        saveCommentsOnDownload: Boolean(appSettings.downloadComments)
       })
     });
     if (!res) {
