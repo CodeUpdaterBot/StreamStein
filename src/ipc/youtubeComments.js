@@ -453,15 +453,16 @@ function resolveCookiesFile() {
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {
-      // A cookies.txt that lost its login (or was truncated to the header) must not be
-      // passed to yt-dlp: it silently degrades to anonymous access and looks like the
-      // cookie support "does not work".
-      const stat = fs.statSync(candidate);
-      if (stat.isFile() && stat.size > 512) {
-        const head = fs.readFileSync(candidate, "utf8").slice(0, 4096);
-        if (/\tSID\t|\t__Secure-1PSID\t|\tLOGIN_INFO\t/.test(head) || head.includes(".youtube.com")) {
-          return candidate;
-        }
+      // Validate the WHOLE file, not a prefix. yt-dlp writes the jar sorted by domain, so
+      // ".youtube.com" rows land near the END of a 170-cookie file — an earlier version of
+      // this check read only the first 4096 chars, never saw them, and silently refused the
+      // cookie file, which made the run look like cookies simply "did not work".
+      const text = fs.readFileSync(candidate, "utf8");
+      if (text.length < 512) continue;
+      const hasYoutubeCookies = /(^|\n)\.youtube\.com\t/.test(text) || /(^|\n)youtube\.com\t/.test(text);
+      const hasSession = /\t(SID|__Secure-1PSID|LOGIN_INFO)\t/.test(text);
+      if (hasYoutubeCookies || hasSession) {
+        return candidate;
       }
     } catch {
       /* try the next candidate */
@@ -478,6 +479,12 @@ function buildArgs({ watchUrl, maxComments, sort, clients }) {
     "--write-comments",
     "--no-write-info-json",
     "--newline",
+    // Comment extraction needs no media formats, and asking yt-dlp to resolve them breaks
+    // videos we CAN read: an age-restricted video fails with "Sorry, this content is
+    // age-restricted" (measured 2026-11-11: that error disappeared and returned 2,364
+    // comments once this flag was added) because the age-gated player response exposes no
+    // selectable format. Same class of failure for members-only-adjacent edge cases.
+    "--ignore-no-formats-error",
     // Comment access is granted per client, and blocked per client — see
     // DEFAULT_CLIENT_SET above for the measurements behind this order.
     "--extractor-args",
@@ -887,6 +894,7 @@ module.exports = {
   readCommentsFile,
   buildArgs,
   fetchCommentsForVideo,
+  resolveCookiesFile,
   registerCommentsAsset,
   deleteCommentsForVideo,
   catalogPathFor,
