@@ -50,6 +50,26 @@ if ($CappedPass -gt 0) {
     & $node (Join-Path $repo 'scripts\comments-catchup.cjs') --only-capped --max $MaxPerVideo --max-total $MaxTotal
 }
 
+# A drain belongs to the IP that requested it. If we have already switched away from that IP,
+# the drain is stale and would make the workers we are about to start exit immediately - so
+# discard it mechanically instead of relying on the operator to remember.
+$drainFile = Join-Path $stateDir 'drain.json'
+if (Test-Path -LiteralPath $drainFile) {
+    $currentIp = ''
+    try { $currentIp = (Invoke-WebRequest -Uri 'https://api.ipify.org' -TimeoutSec 10 -UseBasicParsing).Content.Trim() } catch {}
+    $drainIp = ''
+    try { $drainIp = (Get-Content -LiteralPath $drainFile -Raw | ConvertFrom-Json).ip } catch {}
+    if ($currentIp -and $drainIp -and $currentIp -ne $drainIp) {
+        Remove-Item -LiteralPath $drainFile -Force
+        Write-Output "discarded stale drain (was for $drainIp, now on $currentIp)"
+    } elseif (-not $drainIp) {
+        Remove-Item -LiteralPath $drainFile -Force
+        Write-Output "discarded drain with no recorded IP"
+    } else {
+        Write-Output "NOTE: drain is for the CURRENT IP ($currentIp) - workers will exit immediately"
+    }
+}
+
 if ($DelayMinutes -gt 0) {
     Write-Output "parked: waiting $DelayMinutes min for YouTube's rate limit to decay before launching..."
     Start-Sleep -Seconds ($DelayMinutes * 60)
