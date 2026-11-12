@@ -55,12 +55,14 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 min: a 10,000-comment thread me
  * deliberately. Measured: not one of 1,020 sidecars exceeded depth 3 and 697 sat exactly on
  * it — a suspicious wall, given the 10,000-comment threads in the library.
  *
- * Whether that wall is truncation or is genuinely YouTube's own nesting limit is NOT settled:
- * re-fetching a 4,884-comment video with max-depth=9 produced byte-identical output, as did a
- * 94-comment one. The parameter itself definitely works (max-depth=1 drops every reply: 94 ->
- * 40 comments), so it is now set explicitly rather than left to a default, and
- * `--only-shallow` re-fetches the videos that sat on the wall so the question can be answered
- * with data rather than assumed.
+ * ANSWERED: the wall is YouTube's own nesting limit, NOT our truncation. Re-fetching nine
+ * videos with max-depth=9 (three by hand, six sampled through the pipeline via
+ * scripts/depth-refetch-sample.py) returned byte-identical comment counts every time — 94,
+ * 4,884, 780, plus 4,614 comments across six more, all +0. So the full --only-shallow pass
+ * over the 697 videos on the wall would spend hours of rate-limit budget to change nothing.
+ * The parameter is still set explicitly because an inherited default is how this question
+ * arose in the first place, and because max-depth=1 demonstrably does drop replies (94 -> 40),
+ * i.e. the field is live and worth stating.
  *
  * NOTE the field COUNT is load-bearing: `${N},all,all,9` looks like "depth 9" but actually
  * sets max-replies-per-thread to 9 and leaves max-depth at 3 — which silently REDUCED the
