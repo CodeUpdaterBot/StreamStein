@@ -21,7 +21,10 @@ import {
   ANIME_DEFAULT_SOURCE,
   NON_ANIME_DEFAULT_SOURCE,
   NEEDS_INTERCEPT,
+  CLEAN_USER_AGENT,
+  sourceUsesCleanUa,
 } from "../utils/api";
+import { useSourceId } from "../utils/useSourceId";
 import {
   PlayIcon,
   BookmarkIcon,
@@ -97,8 +100,17 @@ export default function MoviePage({
     () => sourceProgressViaFrames(playerSource),
     [playerSource],
   );
+  // The id the selected source expects: the TMDB id for most sources, or a converted
+  // IMDb / Kinopoisk id for the ones that need it (devideosrc / kinohub).
+  const srcId = useSourceId(playerSource, "movie", item.id, apiKey);
+  // Re-blank the player once a late-resolved id swaps in the real URL.
+  useEffect(() => {
+    if (srcId.id && playing) setWebviewLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcId.id]);
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   const [dubMode, setDubMode] = useState(
+    // key kept from the AllManga era so the saved sub/dub choice survives
     () => storage.get("allmangaDubMode") || "sub",
   );
   const [anilistData, setAnilistData] = useState(null);
@@ -111,7 +123,7 @@ export default function MoviePage({
   saveProgressRef.current = saveProgress;
   const onMarkWatchedRef = useRef(onMarkWatched);
   onMarkWatchedRef.current = onMarkWatched;
-  // AllManga async URL resolution
+  // HiAnime async URL resolution (replaces AllManga)
   const [resolvedPlayerUrl, setResolvedPlayerUrl] = useState(null);
   const [resolvingUrl, setResolvingUrl] = useState(false);
   const [resolveError, setResolveError] = useState(null);
@@ -125,7 +137,7 @@ export default function MoviePage({
   const pipWebContentsIdRef = useRef(null); // cached WebContents ID of the pop-out window
   const cast = useCast();
   const [showCastPicker, setShowCastPicker] = useState(false);
-  const [allmangaIsDirectMp4, setAllmangaIsDirectMp4] = useState(null);
+  const [asyncIsDirectMp4, setAsyncIsDirectMp4] = useState(null);
 
   useEffect(() => {
     const active = playing && !cast.currentDevice;
@@ -197,11 +209,11 @@ export default function MoviePage({
       };
     }
     if (sourceIsAsync(playerSource) && m3u8Url) {
-      const isMp4 = allmangaIsDirectMp4 !== false;
+      const isMp4 = asyncIsDirectMp4 !== false;
       return {
         mode: isMp4 ? "mp4Remote" : "hlsRemote",
         url: m3u8Url,
-        referer: "https://allmanga.to",
+        referer: "https://hianime.at",
         title: castTitle,
         posterUrl,
         remoteVttSubs: subs,
@@ -211,7 +223,7 @@ export default function MoviePage({
       let refererOrigin = null;
       try {
         refererOrigin = new URL(
-          getSourceUrl(playerSource, "movie", item.id, null, null),
+          getSourceUrl(playerSource, "movie", srcId.id, null, null),
         ).origin;
       } catch {}
       return {
@@ -230,7 +242,7 @@ export default function MoviePage({
     interceptedSubs,
     playerSource,
     m3u8Url,
-    allmangaIsDirectMp4,
+    asyncIsDirectMp4,
     mediaPlayback.isLocalMode,
     mediaPlayback.localPath,
     mediaPlayback.localDownload,
@@ -386,7 +398,7 @@ export default function MoviePage({
     };
   }, [item.id, isAnime]);
 
-  // Resolve AllManga movie URL via main-process IPC
+  // Resolve the HiAnime movie URL via main-process IPC
   useEffect(() => {
     if (!playing || !sourceIsAsync(playerSource)) return;
     if (resolvedPlayerUrl || resolvingUrl) return;
@@ -395,7 +407,7 @@ export default function MoviePage({
     const startTime = storage.get("dlTime_" + progressKey) || 0;
     let mounted = true;
     window.electron
-      .resolveAllManga({
+      .resolveHiAnime({
         title,
         seasonNumber: 1,
         episodeNumber: 1,
@@ -406,11 +418,11 @@ export default function MoviePage({
         if (!mounted) return;
         if (res?.ok && res.url) {
           if (res.isDirectMp4 !== undefined) {
-            setAllmangaIsDirectMp4(!!res.isDirectMp4);
+            setAsyncIsDirectMp4(!!res.isDirectMp4);
             window.electron
               .setPlayerVideo({
                 url: res.url,
-                referer: res.referer || "https://allmanga.to",
+                referer: res.referer || "https://hianime.at",
                 startTime,
               })
               .then((r) => {
@@ -425,7 +437,7 @@ export default function MoviePage({
             setResolvedPlayerUrl(res.url);
           }
         } else {
-          setResolveError(res?.error || "Movie not found on AllManga");
+          setResolveError(res?.error || "Movie not found on HiAnime");
         }
       })
       .catch((e) => {
@@ -697,8 +709,9 @@ export default function MoviePage({
     if (sourceIsAsync(playerSource)) {
       return resolvedPlayerUrl || "about:blank";
     }
-    return getSourceUrl(playerSource, "movie", item.id, null, null);
+    return getSourceUrl(playerSource, "movie", srcId.id, null, null);
   }, [
+    srcId.id,
     pipOpen,
     cast.currentDevice,
     mediaPlayback.isLocalMode,
@@ -716,7 +729,7 @@ export default function MoviePage({
 
   // Intercept fullscreen requests from embedded players (vidsrc / 2embed use
   // the native Fullscreen API which would otherwise fullscreen the entire app).
-  // Videasy and AllManga handle fullscreen internally via CSS, skip those.
+  // Some players handle fullscreen internally via CSS, skip those.
   useEffect(() => {
     if (!playing) return;
     if (!NEEDS_INTERCEPT.includes(playerSource)) return;
@@ -992,12 +1005,12 @@ export default function MoviePage({
                   {mediaPlayback.isCheckingLocal
                     ? "Checking local file…"
                     : resolvingUrl
-                      ? "Looking up movie on AllManga…"
+                      ? "Looking up movie on HiAnime…"
                       : `Loading ${PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ?? "source"}…`}
                 </span>
               </div>
             )}
-            {/* AllManga: error if lookup failed */}
+            {/* HiAnime: error if the lookup failed */}
             {sourceIsAsync(playerSource) && resolveError && !resolvingUrl && (
               <div
                 style={{
@@ -1015,7 +1028,7 @@ export default function MoviePage({
               >
                 <span style={{ fontSize: 28 }}>⚠️</span>
                 <span style={{ fontSize: 14, color: "var(--text2)" }}>
-                  Movie not found on AllManga
+                  Movie not found on HiAnime
                 </span>
                 <span style={{ fontSize: 12, color: "var(--text3)" }}>
                   {resolveError}
@@ -1123,6 +1136,12 @@ export default function MoviePage({
             {!mediaPlayback.isLocalMode && (
               <webview
                 ref={webviewRef}
+                // A fresh guest per UA mode: loadURL's userAgent override sticks to the
+                // WebContents, so it cannot be unset on a reused <webview>.
+                key={sourceUsesCleanUa(playerSource) ? "ua-clean" : "ua-default"}
+                useragent={
+                  sourceUsesCleanUa(playerSource) ? CLEAN_USER_AGENT : undefined
+                }
                 src={movieWebviewSrc}
                 partition="persist:player"
                 allowpopups="false"
@@ -1169,8 +1188,8 @@ export default function MoviePage({
                 {PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ??
                   "Source"}
               </button>
-              {/* Sub/Dub toggle, only for AllManga */}
-              {playerSource === "allmanga" && (
+              {/* Sub/Dub toggle, HiAnime only */}
+              {playerSource === "hianime" && (
                 <button
                   className="player-overlay-btn"
                   onClick={() => {
@@ -1257,7 +1276,7 @@ export default function MoviePage({
                       : getSourceUrl(
                           playerSource,
                           "movie",
-                          item.id,
+                          srcId.id,
                           null,
                           null,
                         );

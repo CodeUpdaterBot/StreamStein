@@ -2,7 +2,7 @@
 // Main-process subsystem. Provides:
 // - Device discovery (mDNS for Google Cast, SSDP for DLNA)
 // - LAN-routable HTTP server: /file/:token, /sub/:token, /proxy/:token, /health
-// (separate from src/ipc/allmanga.js getPlayerServer which stays 127.0.0.1)
+// (separate from src/ipc/hianime.js getPlayerServer which stays 127.0.0.1)
 // - Session lifecycle: connect / loadMedia / play / pause / stop / seek / volume
 // - IPC surface mirrors PIP naming (cast:* channels)
 //

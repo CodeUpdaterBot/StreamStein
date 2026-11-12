@@ -28,7 +28,10 @@ import {
   ANIME_DEFAULT_SOURCE,
   NON_ANIME_DEFAULT_SOURCE,
   NEEDS_INTERCEPT,
+  CLEAN_USER_AGENT,
+  sourceUsesCleanUa,
 } from "../utils/api";
+import { useSourceId } from "../utils/useSourceId";
 import {
   BookmarkIcon,
   BookmarkFillIcon,
@@ -395,7 +398,15 @@ export default function TVPage({
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const cast = useCast();
   const [showCastPicker, setShowCastPicker] = useState(false);
-  const [allmangaIsDirectMp4, setAllmangaIsDirectMp4] = useState(null);
+  const [asyncIsDirectMp4, setAsyncIsDirectMp4] = useState(null);
+  // The id the selected source expects: the TMDB id for most sources, or a converted
+  // IMDb / Kinopoisk id for the ones that need it (devideosrc / kinohub).
+  const srcId = useSourceId(playerSource, "tv", item.id, apiKey);
+  // Re-blank the player once a late-resolved id swaps in the real URL.
+  useEffect(() => {
+    if (srcId.id && playing) setWebviewLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcId.id]);
 
   useEffect(() => {
     const active = playing && !cast.currentDevice;
@@ -418,6 +429,7 @@ export default function TVPage({
     [playerSource],
   );
   const [dubMode, setDubMode] = useState(
+    // key kept from the AllManga era so the saved sub/dub choice survives
     () => storage.get("allmangaDubMode") || "sub",
   );
   // async URL resolution
@@ -674,7 +686,7 @@ export default function TVPage({
     };
   }, [item.id, isAnime]);
 
-  // Resolve allmanga episode URL via main-process IPC (GraphQL, no CORS)
+  // Resolve the HiAnime episode URL via main-process IPC (scrape + local hls proxy)
   useEffect(() => {
     if (!playing || !selectedEp || !isAsync) return;
     if (resolvedPlayerUrl || resolvingUrl) return;
@@ -685,7 +697,7 @@ export default function TVPage({
     const startTime = storage.get("dlTime_" + progressKey) || 0;
     let mounted = true;
     window.electron
-      .resolveAllManga({
+      .resolveHiAnime({
         title,
         seasonNumber: selectedSeason,
         episodeNumber: epNum,
@@ -695,11 +707,11 @@ export default function TVPage({
         if (!mounted) return;
         if (res?.ok && res.url) {
           if (res.isDirectMp4 !== undefined) {
-            setAllmangaIsDirectMp4(!!res.isDirectMp4);
+            setAsyncIsDirectMp4(!!res.isDirectMp4);
             window.electron
               .setPlayerVideo({
                 url: res.url,
-                referer: res.referer || "https://allmanga.to",
+                referer: res.referer || "https://hianime.at",
                 startTime,
               })
               .then((r) => {
@@ -715,7 +727,7 @@ export default function TVPage({
             setResolvedPlayerUrl(res.url);
           }
         } else {
-          setResolveError(res?.error || "Episode not found on AllManga");
+          setResolveError(res?.error || "Episode not found on HiAnime");
         }
       })
       .catch((e) => {
@@ -807,7 +819,7 @@ export default function TVPage({
     [d.seasons],
   );
   // tmdbSeasonsWithSpecials includes season 0 for display purposes.
-  // Excluded for anime: AllManga
+  // Excluded for anime: HiAnime
   const tmdbSeasonsWithSpecials = useMemo(() => {
     if (isAnime) return tmdbSeasons;
     if (failedSeasons.has(0)) return tmdbSeasons;
@@ -976,11 +988,11 @@ export default function TVPage({
       };
     }
     if (isAsync && m3u8Url) {
-      const isMp4 = allmangaIsDirectMp4 !== false;
+      const isMp4 = asyncIsDirectMp4 !== false;
       return {
         mode: isMp4 ? "mp4Remote" : "hlsRemote",
         url: m3u8Url,
-        referer: "https://allmanga.to",
+        referer: "https://hianime.at",
         title: castTitle,
         posterUrl,
         remoteVttSubs: subs,
@@ -993,7 +1005,7 @@ export default function TVPage({
           getSourceUrl(
             playerSource,
             "tv",
-            item.id,
+            srcId.id,
             playerEp.season,
             playerEp.episode,
           ),
@@ -1017,7 +1029,7 @@ export default function TVPage({
     isAsync,
     playerSource,
     m3u8Url,
-    allmangaIsDirectMp4,
+    asyncIsDirectMp4,
     mediaPlayback.isLocalMode,
     mediaPlayback.localPath,
     mediaPlayback.localDownload,
@@ -1371,7 +1383,7 @@ export default function TVPage({
   useEffect(() => {
     setSkipTimings(null);
     setSkipPrompt(null);
-    if (introSkipMode === "off" || playerSource !== "allmanga" || !isAnime)
+    if (introSkipMode === "off" || playerSource !== "hianime" || !isAnime)
       return;
     const anilistId = anilistData?.idMal;
     const epNum = selectedEp?.episode_number;
@@ -1431,7 +1443,7 @@ export default function TVPage({
       introSkipMode !== "off" &&
       playing &&
       !!skipTimings &&
-      playerSource === "allmanga";
+      playerSource === "hianime";
 
     if (!aniSkipActive) setSkipPrompt(null);
     if (!playing || !currentProgressKey || mediaPlayback.isLocalMode) return;
@@ -1598,11 +1610,12 @@ export default function TVPage({
     return getSourceUrl(
       playerSource,
       "tv",
-      item.id,
+      srcId.id,
       playerEp.season,
       playerEp.episode,
     );
   }, [
+    srcId.id,
     pipOpen,
     cast.currentDevice,
     mediaPlayback.isLocalMode,
@@ -1630,7 +1643,7 @@ export default function TVPage({
 
   useEffect(() => {
     const wv = webviewRef.current;
-    if (!wv || !playing || playerSource !== "allmanga") return;
+    if (!wv || !playing || playerSource !== "hianime") return;
 
     const inject = () => {
       wv.executeJavaScript(INJECT_SKIP_CONTROLS).catch(() => {});
@@ -1858,7 +1871,7 @@ export default function TVPage({
 
   // Intercept fullscreen requests from embedded players (vidsrc / 2embed use
   // the native Fullscreen API which would otherwise fullscreen the entire app).
-  // Videasy and AllManga handle fullscreen internally via CSS, skip those.
+  // Some players handle fullscreen internally via CSS, skip those.
   useEffect(() => {
     if (!playing) return;
     if (!NEEDS_INTERCEPT.includes(playerSource)) return;
@@ -2095,7 +2108,7 @@ export default function TVPage({
                       {mediaPlayback.isCheckingLocal
                         ? "Checking local file…"
                         : resolvingUrl
-                          ? "Looking up episode on AllManga…"
+                          ? "Looking up episode on HiAnime…"
                           : `Loading ${PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ?? "source"}…`}
                     </span>
                   </div>
@@ -2118,7 +2131,7 @@ export default function TVPage({
                   >
                     <span style={{ fontSize: 28 }}>⚠️</span>
                     <span style={{ fontSize: 14, color: "var(--text2)" }}>
-                      Episode not found on AllManga
+                      Episode not found on HiAnime
                     </span>
                     <span style={{ fontSize: 12, color: "var(--text3)" }}>
                       {resolveError}
@@ -2232,6 +2245,12 @@ export default function TVPage({
                 {!mediaPlayback.isLocalMode && (
                   <webview
                     ref={webviewRef}
+                    // A fresh guest per UA mode: loadURL's userAgent override sticks to
+                    // the WebContents, so it cannot be unset on a reused <webview>.
+                    key={sourceUsesCleanUa(playerSource) ? "ua-clean" : "ua-default"}
+                    useragent={
+                      sourceUsesCleanUa(playerSource) ? CLEAN_USER_AGENT : undefined
+                    }
                     src={tvWebviewSrc}
                     partition="persist:player"
                     allowpopups="false"
@@ -2281,13 +2300,14 @@ export default function TVPage({
                     {PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ??
                       "Source"}
                   </button>
-                  {/* Sub/Dub toggle, only for AllManga */}
-                  {playerSource === "allmanga" && (
+                  {/* Sub/Dub toggle, HiAnime only */}
+                  {playerSource === "hianime" && (
                     <button
                       className="player-overlay-btn"
                       onClick={() => {
                         const next = dubMode === "sub" ? "dub" : "sub";
                         setDubMode(next);
+                        // same retained key as above
                         storage.set("allmangaDubMode", next);
                         setM3u8Url(null);
                         setInterceptedSubs([]);
@@ -2372,7 +2392,7 @@ export default function TVPage({
                           : getSourceUrl(
                               playerSource,
                               "tv",
-                              item.id,
+                              srcId.id,
                               playerEp.season,
                               playerEp.episode,
                             );

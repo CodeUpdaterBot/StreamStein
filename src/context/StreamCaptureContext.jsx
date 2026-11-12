@@ -23,7 +23,7 @@ const StreamCaptureContext = createContext(null);
 
 const RESOLVE_TIMEOUT_MS = 75000;
 const URL_SETTLE_MS = 3200;
-const DEFAULT_SOURCES = ["videasy", "vidsrc"];
+const DEFAULT_SOURCES = ["vidsrc", "vidfast"]; // retired ids removed (upstream 44682f5)
 
 function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -198,14 +198,14 @@ export function StreamCaptureProvider({ children }) {
       if (signal?.aborted) return { ok: false, error: "Cancelled" };
 
       if (isAnime) {
-        const r = await window.electron.resolveAllManga({
+        const r = await window.electron.resolveHiAnime({
           title,
           seasonNumber: season,
           episodeNumber: episode,
           translationType: dubMode === "dub" ? "dub" : "sub",
         });
-        if (r?.ok && r.url) return { ok: true, url: r.url, sourceId: "allmanga" };
-        return { ok: false, error: r?.error || "AllManga resolve failed" };
+        if (r?.ok && r.url) return { ok: true, url: r.url, sourceId: "hianime" };
+        return { ok: false, error: r?.error || "HiAnime resolve failed" };
       }
 
       const sourceList =

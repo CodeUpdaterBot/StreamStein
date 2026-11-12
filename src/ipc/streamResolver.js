@@ -8,24 +8,54 @@ const { scheduleEmbedAutomation } = require("./embedAutomation");
 
 const RESOLVE_TIMEOUT_MS = 55000;
 const EARLY_SETTLE_MS = 2200;
-// Keep aligned with src/utils/api.js PLAYER_SOURCES (Jun 2026 upstream domain migrations).
-const SOURCE_ORDER_DEFAULT = ["videasy", "vidsrc", "vidking"];
+// Keep aligned with src/utils/api.js PLAYER_SOURCES (streambert 2.7.0 source set).
+// videasy/vidking retired in 44682f5; allmanga replaced by hianime (async, not here).
+//
+// Sources needing a converted id (devideosrc -> IMDb, kinohub -> Kinopoisk) are omitted
+// on purpose: this resolver builds URLs from the TMDB id only, so listing them would
+// capture against a wrong URL. They still work in the player itself.
+const SOURCE_ORDER_DEFAULT = [
+  "vidsrc",
+  "vidfast",
+  "vidrift",
+  "vidnest",
+  "vidlove",
+  "aether",
+  "frembed",
+];
 
 const EMBED_URLS = {
-  videasy: {
-    tv: (id, season, ep) =>
-      `https://player.videasy.to/tv/${id}/${season}/${ep}`,
-    movie: (id) => `https://player.videasy.to/movie/${id}`,
-  },
   vidsrc: {
     tv: (id, season, ep) =>
       `https://vsembed.su/embed/tv/${id}/${season}/${ep}`,
     movie: (id) => `https://vsembed.su/embed/movie/${id}`,
   },
-  vidking: {
+  vidfast: {
+    tv: (id, season, ep) => `https://vidfast.vc/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://vidfast.vc/movie/${id}`,
+  },
+  vidrift: {
     tv: (id, season, ep) =>
-      `https://www.vidking.net/embed/tv/${id}/${season}/${ep}`,
-    movie: (id) => `https://www.vidking.net/embed/movie/${id}`,
+      `https://embed.vidrift.net/embed/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://embed.vidrift.net/embed/movie/${id}`,
+  },
+  vidnest: {
+    tv: (id, season, ep) => `https://vidnest.fun/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://vidnest.fun/movie/${id}`,
+  },
+  vidlove: {
+    tv: (id, season, ep) =>
+      `https://player.vidlove.cc/embed/tv/${id}/${season}/${ep}`,
+    movie: (id) => `https://player.vidlove.cc/embed/movie/${id}`,
+  },
+  aether: {
+    tv: (id, season, ep) => `https://aether.ist/media/tmdb-tv-${id}/${season}/${ep}`,
+    movie: (id) => `https://aether.ist/media/tmdb-movie-${id}`,
+  },
+  frembed: {
+    tv: (id, season, ep) =>
+      `https://frembed.uno/embed/serie/${id}?sa=${season}&epi=${ep}`,
+    movie: (id) => `https://frembed.uno/embed/movie/${id}`,
   },
 };
 

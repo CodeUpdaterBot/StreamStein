@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { CloseIcon, DownloadIcon, ChevronRightIcon } from "./Icons";
 import { storage, STORAGE_KEYS } from "../utils/storage";
-import { imgUrl } from "../utils/api";
+import { imgUrl, PLAYER_SOURCES, NON_ANIME_DEFAULT_SOURCE } from "../utils/api";
 
-const DEFAULT_SOURCES = ["videasy", "vidsrc"];
-const SOURCE_ORDER = ["videasy", "vidsrc", "vidking", "2embed"];
+// Derived from the registry so a retired source can never be offered again.
+const DEFAULT_SOURCES = [NON_ANIME_DEFAULT_SOURCE, "vidsrc"];
+const SOURCE_ORDER = PLAYER_SOURCES.map((s) => s.id);
 
 function sortSeriesSources(list) {
   return [...list].sort(
@@ -447,17 +448,20 @@ export default function SeriesDownloadModal({
                   Sources
                 </span>
                 <div className="series-download-modal__sources">
-                  {["videasy", "vidsrc"].map((id) => (
-                    <label key={id} className="series-download-modal__chip">
-                      <input
-                        type="checkbox"
-                        checked={sources.includes(id)}
-                        onChange={() => toggleSource(id)}
-                        disabled={busy}
-                      />
-                      {id === "videasy" ? "Videasy" : "VidSrc"}
-                    </label>
-                  ))}
+                  {/* The non-anime, non-async sources — anime needs the anime flow. */}
+                  {PLAYER_SOURCES.filter((s) => !s.async && !s.tag).map(
+                    ({ id, label }) => (
+                      <label key={id} className="series-download-modal__chip">
+                        <input
+                          type="checkbox"
+                          checked={sources.includes(id)}
+                          onChange={() => toggleSource(id)}
+                          disabled={busy}
+                        />
+                        {label}
+                      </label>
+                    ),
+                  )}
                 </div>
               </div>
             )}

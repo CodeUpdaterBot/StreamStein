@@ -1131,28 +1131,55 @@ function downloadSubtitleFile(url, destPath) {
 }
 
 // Player Origin/Referer for CDN fetches (keep in sync with src/utils/api.js).
+// One entry per source in src/utils/api.js PLAYER_SOURCES (the origins are those
+// sources' own player URLs). Retired ids (videasy/vidking/2embed) are gone; an
+// unknown id falls back to vidsrc.
 const PLAYER_ACCESS_HEADERS = {
-  videasy: {
-    Origin: "https://player.videasy.to",
-    Referer: "https://player.videasy.to/",
-  },
   vidsrc: {
     Origin: "https://vsembed.su",
     Referer: "https://vsembed.su/",
   },
-  vidking: {
-    Origin: "https://www.vidking.net",
-    Referer: "https://www.vidking.net/",
+  vidfast: {
+    Origin: "https://vidfast.vc",
+    Referer: "https://vidfast.vc/",
   },
-  "2embed": {
-    Origin: "https://www.vidking.net",
-    Referer: "https://www.vidking.net/",
+  vidlove: {
+    Origin: "https://player.vidlove.cc",
+    Referer: "https://player.vidlove.cc/",
+  },
+  aether: {
+    Origin: "https://aether.ist",
+    Referer: "https://aether.ist/",
+  },
+  vidrift: {
+    Origin: "https://embed.vidrift.net",
+    Referer: "https://embed.vidrift.net/",
+  },
+  vidnest: {
+    Origin: "https://vidnest.fun",
+    Referer: "https://vidnest.fun/",
+  },
+  devideosrc: {
+    Origin: "https://devideosrc.co",
+    Referer: "https://devideosrc.co/",
+  },
+  frembed: {
+    Origin: "https://frembed.uno",
+    Referer: "https://frembed.uno/",
+  },
+  kinohub: {
+    Origin: "https://on.kinohub.vip",
+    Referer: "https://on.kinohub.vip/",
+  },
+  hianime: {
+    Origin: "https://hianime.at",
+    Referer: "https://hianime.at/",
   },
 };
 
 function resolvePlayerAccessHeaders(sourceId) {
-  const key = String(sourceId || "videasy").toLowerCase();
-  return PLAYER_ACCESS_HEADERS[key] || PLAYER_ACCESS_HEADERS.videasy;
+  const key = String(sourceId || "vidsrc").toLowerCase();
+  return PLAYER_ACCESS_HEADERS[key] || PLAYER_ACCESS_HEADERS.vidsrc;
 }
 
 function buildVidDlSpawnEnv() {
@@ -1352,7 +1379,7 @@ async function spawnDownloadProcess(
 
   const logPath = downloads[idx0].logPath;
   const resolvedSource =
-    sourceId || downloads[idx0].sourceId || "videasy";
+    sourceId || downloads[idx0].sourceId || "vidsrc";
   const headersFromCapture =
     streamHeaders || downloads[idx0].streamHeaders || {};
 
@@ -1698,7 +1725,7 @@ function enqueueDownload({
     sourceId ||
     resolveContext?.sourceId ||
     resolveContext?.sources?.[0] ||
-    "videasy";
+    "vidsrc";
   const normalizedStreamHeaders =
     streamHeaders && typeof streamHeaders === "object" ? streamHeaders : {};
 

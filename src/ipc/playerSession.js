@@ -36,10 +36,24 @@ function configurePlayerSessions(deps) {
     callback({ responseHeaders: headers });
   };
 
-  const UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-  playerSession.setUserAgent(UA);
-  trailerSession.setUserAgent(UA);
+  // ── User agent ──────────────────────────────────────────────────────────────
+  // Do NOT spoof a UA on the player session. Upstream removed this deliberately
+  // ("fix failed cloudflare challenge", streambert 44682f5): the player webview
+  // starts loading BEFORE setUserAgent() takes effect, so the first player of a
+  // session used Electron's real UA and passed Cloudflare Turnstile, while every
+  // later player got the modified UA and failed with error 600010.
+  //
+  // Per-source UAs are still available where a host genuinely needs one: sources
+  // flagged `cleanUserAgent` (e.g. vidfast) are loaded with a UA passed at
+  // loadURL / the <webview> `useragent` attribute (see buildCleanUserAgent() in
+  // index.js, exposed to the renderer as window.electron.cleanUserAgent).
+  // playerSession.setUserAgent(...) intentionally NOT called.
+
+  // No browser downloads from player/trailer pages: video and subtitle downloads
+  // go exclusively through the app's own download manager, never the webview.
+  const blockDownloads = (event) => event.preventDefault();
+  playerSession.on("will-download", blockDownloads);
+  trailerSession.on("will-download", blockDownloads);
 
   playerSession.webRequest.onHeadersReceived(
     { urls: ["*://*/*"] },
@@ -173,10 +187,11 @@ function configurePlayerSessions(deps) {
     sameSite: "no_restriction",
     expirationDate: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 2,
   };
+  // Scoped to the trailer session only (upstream narrowed this in 44682f5): YouTube
+  // content is only ever embedded in the trailer webview.
   for (const domain of [".youtube.com", ".youtube-nocookie.com"]) {
     const cookie = { ...ytCookie, domain };
     trailerSession.cookies.set(cookie).catch(() => {});
-    playerSession.cookies.set(cookie).catch(() => {});
   }
 }
 
