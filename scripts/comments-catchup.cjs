@@ -455,6 +455,21 @@ const total = queue.length;
 
 for (const video of queue) {
   if (stopping) break;
+
+  // Graceful drain: budget-watch.py writes this when the current egress IP is close to its
+  // comment budget. Exit BEFORE starting another fetch so the switch costs no wasted work —
+  // being killed mid-fetch loses the fetch AND re-spends budget on a later IP when the video
+  // is queued again.
+  const drain = loadJson(path.join(STATE_DIR, "drain.json"), null);
+  if (drain) {
+    log(
+      `drain requested (${drain.reason || "budget"}) — stopping after ${index} videos so the ` +
+        `VPN can switch IP without wasting the fetch in flight`,
+    );
+    stopping = true;
+    break;
+  }
+
   index += 1;
 
   const label = `${video.channelName || path.basename(video.directory || "")} / ${video.fileName}`;
