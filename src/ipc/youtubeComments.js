@@ -74,6 +74,23 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 min: a 10,000-comment thread me
  */
 const MAX_REPLY_DEPTH = 9;
 
+/**
+ * Channels that get a SHALLOWER depth on purpose.
+ *
+ * Predictive History threads are the largest in the library (single videos run 4,000-7,000
+ * comments) and depth 9 recovers nothing there — measured +0 across nine re-fetches, because
+ * the nesting wall is YouTube's own. Deeper traversal on those videos only costs API calls,
+ * so they are held at the old depth 3 while everything else gets 9.
+ */
+const SHALLOW_DEPTH = 3;
+const SHALLOW_DEPTH_CHANNELS = [/^predictive history$/i];
+
+/** Reply depth to use for a video, given its channel. */
+function replyDepthFor(channelName) {
+  const name = String(channelName || "").trim();
+  return SHALLOW_DEPTH_CHANNELS.some((re) => re.test(name)) ? SHALLOW_DEPTH : MAX_REPLY_DEPTH;
+}
+
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 function basenameNoExt(filePath) {
@@ -499,7 +516,7 @@ function resolveCookiesFile() {
   return null;
 }
 
-function buildArgs({ watchUrl, maxComments, sort, clients }) {
+function buildArgs({ watchUrl, maxComments, sort, clients, maxDepth }) {
   const args = [
     "--skip-download",
     "--no-playlist",
@@ -525,7 +542,7 @@ function buildArgs({ watchUrl, maxComments, sort, clients }) {
   if (Number.isFinite(maxComments) && maxComments > 0) {
     args.push(
       "--extractor-args",
-      `youtube:max_comments=${Math.floor(maxComments)},all,all,all,${MAX_REPLY_DEPTH}`,
+      `youtube:max_comments=${Math.floor(maxComments)},all,all,all,${maxDepth || MAX_REPLY_DEPTH}`,
     );
   }
   // Ordering is NOT passed by default, and that is deliberate: yt-dlp's own default
@@ -558,6 +575,7 @@ function fetchCommentsForVideo(options = {}) {
     maxComments = DEFAULT_MAX_COMMENTS,
     sort = DEFAULT_COMMENT_SORT,
     clients = null,
+    maxDepth = null,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     ytDlpCommand,
     onProgress,
@@ -582,7 +600,15 @@ function fetchCommentsForVideo(options = {}) {
     const ytDlpPath = resolved.path;
     const ytDlpResolvedVersion = resolved.version;
     const target = commentsPathFor(videoFilePath);
-    const args = buildArgs({ watchUrl: url, maxComments, sort, clients });
+    const args = buildArgs({
+      watchUrl: url,
+      maxComments,
+      sort,
+      clients,
+      // Per-channel policy lives here so the app button, the CLI and the bulk runner all obey
+      // it without each remembering the rule.
+      maxDepth: maxDepth || replyDepthFor(channelName),
+    });
     const started = Date.now();
     const progress = (phase, detail) => {
       try {
@@ -923,6 +949,7 @@ module.exports = {
   buildArgs,
   fetchCommentsForVideo,
   resolveCookiesFile,
+  replyDepthFor,
   registerCommentsAsset,
   deleteCommentsForVideo,
   catalogPathFor,
