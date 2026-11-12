@@ -46,6 +46,32 @@ const DEFAULT_MAX_COMMENTS = 10000;
 const DEFAULT_COMMENT_SORT = "default";
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 min: a 10,000-comment thread measured 573s
 
+/**
+ * How deep into a reply chain to extract.
+ *
+ * yt-dlp's `max_comments` takes FIVE comma-separated fields:
+ *   max-comments,max-parents,max-replies,max-replies-per-thread,max-depth
+ * We were passing four and relying on the default for the fifth, so depth was never chosen
+ * deliberately. Measured: not one of 1,020 sidecars exceeded depth 3 and 697 sat exactly on
+ * it — a suspicious wall, given the 10,000-comment threads in the library.
+ *
+ * Whether that wall is truncation or is genuinely YouTube's own nesting limit is NOT settled:
+ * re-fetching a 4,884-comment video with max-depth=9 produced byte-identical output, as did a
+ * 94-comment one. The parameter itself definitely works (max-depth=1 drops every reply: 94 ->
+ * 40 comments), so it is now set explicitly rather than left to a default, and
+ * `--only-shallow` re-fetches the videos that sat on the wall so the question can be answered
+ * with data rather than assumed.
+ *
+ * NOTE the field COUNT is load-bearing: `${N},all,all,9` looks like "depth 9" but actually
+ * sets max-replies-per-thread to 9 and leaves max-depth at 3 — which silently REDUCED the
+ * reply count (94 -> 87 on a test video) instead of deepening it. The depth value must be
+ * the FIFTH field.
+ *
+ * 9 is deliberate rather than "all": real YouTube threads rarely nest past 6-8, so 9 is
+ * effectively unlimited while staying a finite bound.
+ */
+const MAX_REPLY_DEPTH = 9;
+
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 function basenameNoExt(filePath) {
@@ -497,7 +523,7 @@ function buildArgs({ watchUrl, maxComments, sort, clients }) {
   if (Number.isFinite(maxComments) && maxComments > 0) {
     args.push(
       "--extractor-args",
-      `youtube:max_comments=${Math.floor(maxComments)},all,all,all`,
+      `youtube:max_comments=${Math.floor(maxComments)},all,all,all,${MAX_REPLY_DEPTH}`,
     );
   }
   // Ordering is NOT passed by default, and that is deliberate: yt-dlp's own default

@@ -254,7 +254,12 @@ export default function YoutubeCommentsModal({ video, onClose, onFetched }) {
   const [fetchError, setFetchError] = useState(null);
   const [justFetched, setJustFetched] = useState(null);
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState("top");
+  // Default is "liked". The old default was "top", which only floated pinned comments and
+  // otherwise kept YouTube's own order — close enough to "newest" in practice that the two
+  // options were redundant, so "top" is gone and the viewer offers a real choice.
+  // Pinned comments still lead whatever the mode (see the sort below), because a pinned
+  // comment is meant to be read first.
+  const [sortMode, setSortMode] = useState("liked");
   const [threadsShown, setThreadsShown] = useState(THREADS_PAGE);
   const [removing, setRemoving] = useState(false);
   const searchRef = useRef(null);
@@ -410,7 +415,12 @@ export default function YoutubeCommentsModal({ video, onClose, onFetched }) {
       return [...list].sort((a, b) => (b.publishedAt || "").localeCompare(a.publishedAt || ""));
     }
     if (sortMode === "liked") {
-      return [...list].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
+      // Pinned first, then most-liked: a pinned comment is meant to be read first, and
+      // otherwise it can sink below popular replies and effectively disappear.
+      return [...list].sort(
+        (a, b) =>
+          Number(b.isPinned) - Number(a.isPinned) || (b.likeCount || 0) - (a.likeCount || 0),
+      );
     }
     return [...list].sort((a, b) => Number(b.isPinned) - Number(a.isPinned));
   }, [comments, sortMode]);
@@ -514,9 +524,8 @@ export default function YoutubeCommentsModal({ video, onClose, onFetched }) {
 
           <div className="yt-comments__segmented" role="group" aria-label="Sort comments">
             {[
-              ["top", "Top"],
-              ["newest", "Newest"],
               ["liked", "Most liked"],
+              ["newest", "Newest"],
             ].map(([value, label]) => (
               <button
                 key={value}

@@ -51,6 +51,13 @@ const BASE_DELAY_MS = Number(argOf("--delay", 3000));
 const FORCE = flag("--force");
 // Re-fetch only the videos a previous run had to cap, at the new (higher) ceiling.
 const ONLY_CAPPED = flag("--only-capped");
+// Re-fetch pass for the depth bug: until MAX_REPLY_DEPTH was passed explicitly, yt-dlp
+// capped reply chains at depth 3, so every sidecar whose deepest chain reached level 3 is
+// provably incomplete (measured: 697 of 1,020 videos sat exactly on that wall, none went
+// deeper). Videos whose deepest chain is < 3 never met the cap and are complete, so this
+// pass deliberately targets only the ones that lost data.
+const ONLY_SHALLOW = flag("--only-shallow");
+const OLD_DEPTH_CAP = 3;
 const DRY_RUN = flag("--dry-run");
 const SORT = argOf("--sort", "library");
 // Sharding for parallel workers: --shard 0/3, --shard 1/3, --shard 2/3. Written as a
@@ -328,6 +335,23 @@ if (ONLY_CAPPED) {
   queue = myShard.filter((v) => state.processed[keyOf(v.filePath)]?.truncated === true);
 }
 
+// Depth re-fetch pass: videos whose stored thread hit the old depth-3 cap. Reads the sidecar
+// because that is where maxDepth is recorded.
+if (ONLY_SHALLOW) {
+  const hitDepthCap = (filePath) => {
+    const sidecar = comments.commentsPathFor(filePath);
+    if (!sidecar || !fs.existsSync(sidecar)) return false;
+    try {
+      const doc = JSON.parse(fs.readFileSync(sidecar, "utf8"));
+      const md = doc?.stats?.maxDepth;
+      return Number.isFinite(md) && md >= OLD_DEPTH_CAP;
+    } catch {
+      return false;
+    }
+  };
+  queue = myShard.filter((v) => hitDepthCap(v.filePath));
+}
+
 // Videos already known to be permanently unavailable (members-only, removed) are not
 // retried on later runs. --force overrides, for the day the user supplies cookies.
 const permanentSkips = new Set(Object.keys(state.skippedPermanent || {}));
@@ -356,6 +380,7 @@ log(
     `order=${SORT} commentSort=${comments.DEFAULT_COMMENT_SORT} clients=[${activeClientSet()}]` +
     `${FORCE ? " force" : ""}` +
     `${ONLY_CAPPED ? " onlyCapped" : ""}` +
+    `${ONLY_SHALLOW ? " onlyShallow(depth<" + OLD_DEPTH_CAP + " skipped)" : ""}` +
     `${SHARD_COUNT > 1 ? ` shard=${SHARD_INDEX + 1}/${SHARD_COUNT}` : ""}` +
     `${permanentSkips.size ? ` permanentSkipped=${permanentSkips.size}` : ""}`,
 );
