@@ -44,7 +44,7 @@ const DEFAULT_MAX_COMMENTS = 10000;
  * viewer re-sorts from the stored data anyway.
  */
 const DEFAULT_COMMENT_SORT = "default";
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 min: a 10,000-comment thread measured 573s
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
