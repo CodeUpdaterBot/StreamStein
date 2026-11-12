@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "YouTube Video & Channel Downloader",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "description": "Download individual YouTube videos or entire channels directly from your browser. The best YouTube downloader.",
     "background": {
       "service_worker": "background.js",
