@@ -301,10 +301,11 @@ const DEFAULT_SETTINGS = {
   ffmpegPath: "",
   maxQuality: "1080", // 'best' | '2160' | '1440' | '1080' | '720' | '480' | '360'
   downloadTranscripts: true,
-  // Capture each downloaded video's comments (sidecar + catalog record). Off by
-  // default: it adds a comment fetch to every download. Flipped on in the
-  // extension's settings pane; the bridge passes it to the app with each download.
-  downloadComments: false,
+  // Capture each downloaded video's comments (sidecar + catalog record). ON by default:
+  // a download is the one moment we already have the video in hand, and capturing then
+  // avoids ever needing a bulk catch-up pass over the library. The settings pane turns it
+  // off, and that choice reaches the bridge as saveCommentsOnDownload.
+  downloadComments: true,
   ytDlpCookiesFromBrowser: "",
   ytDlpCookiesFile: "",
   ytDlpWarmupEnabled: false,
@@ -314,6 +315,9 @@ const DEFAULT_SETTINGS = {
   ytDlpWarmupBrowserCommand: "",
   whisperCommand: ""
 };
+
+// Bumped when a stored settings object needs a one-time migration (see loadSettings).
+const SETTINGS_VERSION = 2;
 
 let appSettings = { ...DEFAULT_SETTINGS };
 
@@ -340,6 +344,16 @@ function loadSettings(callback) {
     } else {
       appSettings = { ...DEFAULT_SETTINGS };
     }
+    // Comment capture became ON by default for new downloads. An install that saved
+    // settings under the OLD default carries downloadComments:false forward through the
+    // spread above, which would silently keep the old behaviour forever - so migrate an
+    // unversioned stored object once. At v2+ the stored value is honoured, so a later
+    // explicit OFF from the user sticks.
+    if (!stored || Number(stored.settingsVersion || 1) < SETTINGS_VERSION) {
+      appSettings.downloadComments = true;
+      appSettings.settingsVersion = SETTINGS_VERSION;
+      chrome.storage?.sync?.set?.({ ytSaverSettings: appSettings });
+    }
     callback?.(appSettings);
   });
 }
@@ -359,6 +373,7 @@ function saveSettings(newSettings, callback) {
       : DEFAULT_SETTINGS.maxQuality,
     downloadTranscripts: Boolean(newSettings.downloadTranscripts),
     downloadComments: Boolean(newSettings.downloadComments),
+    settingsVersion: SETTINGS_VERSION,
     ytDlpCookiesFromBrowser:
       typeof newSettings.ytDlpCookiesFromBrowser === "string"
         ? newSettings.ytDlpCookiesFromBrowser.trim()

@@ -20,6 +20,16 @@ const YOUTUBE_CATALOG_UPDATED_PREFIX = "__STREAMSTEIN_YOUTUBE_CATALOG_UPDATED__"
 
 const BRIDGE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Bumped when a stored config needs a one-time migration.
+ *
+ * A config saved before a bump is MIGRATED rather than honoured, because loadServerConfig()
+ * spreads the stored object over the defaults — so a setting whose default later changed
+ * would otherwise stay frozen at the old value on every existing install, even though the
+ * user never chose it. At the current version the value is whatever the user last saved.
+ */
+const CONFIG_VERSION = 2;
+
 function notifyYoutubeCatalogUpdated(detail = {}) {
   try {
     const payload = {
@@ -751,7 +761,12 @@ let serverConfig = {
   // beside the video + a catalog record). The Streamstein main process does the fetching —
   // it owns that code — and only when this is on, which is why the flag also rides along
   // with the catalog-updated notification it reacts to.
-  saveCommentsOnDownload: false,
+  //
+  // ON by default: a download is the one moment we already have the video in hand, and
+  // capturing then avoids ever needing a bulk catch-up pass over the library. The
+  // extension's settings pane turns it off per user; the value is posted here as
+  // saveCommentsOnDownload and rides along with each finished download.
+  saveCommentsOnDownload: true,
   ytDlpWarmupDelayMs: 2500,
   ytDlpWarmupCooldownMs: 15000,
   ytDlpWarmupBrowserCommand: "",
@@ -992,6 +1007,7 @@ fastify.post("/api/config", async (request) => {
       serverConfig.moviesLibraryFolder = moviesLibraryFolderIn;
     }
     applyBundledYoutubeCookiesDefaults();
+    serverConfig.configVersion = CONFIG_VERSION;
     persistServerConfig();
 
     if (modeChanged || youtubeFolderChanged) {
@@ -2064,6 +2080,14 @@ function loadServerConfig() {
               ? parsed.ytDlpWarmupBrowserCommand
               : serverConfig.ytDlpWarmupBrowserCommand,
           whisperCommand: typeof parsed.whisperCommand === "string" ? parsed.whisperCommand : serverConfig.whisperCommand,
+          // Comment capture flipped ON by default (CONFIG_VERSION 2). A config saved under
+          // the old default carries `false` through the spread above, freezing the old
+          // behaviour on every existing install even though the user never chose it - so
+          // an unversioned config is migrated once. At v2+ the stored value is honoured,
+          // which is what makes an explicit OFF stick.
+          saveCommentsOnDownload:
+            Number(parsed.configVersion || 1) >= CONFIG_VERSION ? parsed.saveCommentsOnDownload === true : true,
+          configVersion: Math.max(Number(parsed.configVersion || 1), CONFIG_VERSION),
           openaiKey: typeof parsed.openaiKey === "string" ? parsed.openaiKey : serverConfig.openaiKey,
           openaiBaseUrl: typeof parsed.openaiBaseUrl === "string" ? parsed.openaiBaseUrl : serverConfig.openaiBaseUrl,
           openaiModelDefault:
