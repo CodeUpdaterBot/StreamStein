@@ -85,6 +85,10 @@ function extractVideoId(input) {
     if (v) return v;
     const segments = url.pathname.split("/").filter(Boolean);
     if (segments[0] === "shorts" && segments[1]) return segments[1];
+    // /live/<videoId> - a live stream (current or past) is the same video as
+    // /watch?v=<id>; without this the catalog record and the comments sidecar would
+    // be written with a null video id.
+    if (segments[0] === "live" && segments[1]) return segments[1];
   } catch {
     const match = input.match(/[?&]v=([^&]+)/);
     if (match) return match[1];

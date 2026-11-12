@@ -240,7 +240,12 @@ function isYouTubeWatchUrl(url) {
     if (u.hostname === "youtu.be") return u.pathname.slice(1).length > 0;
     const isWatch = u.pathname.startsWith("/watch") && !!u.searchParams.get("v");
     const isShort = u.pathname.split("/").includes("shorts");
-    return isWatch || isShort;
+    // A live stream - in progress, or a finished one - is served at /live/<videoId>,
+    // and YouTube keeps that path when the page is opened from the Live tab or a
+    // shared /live link. It is an ordinary watchable video; without this the popup
+    // said "Active tab is not a YouTube video." on a perfectly good page.
+    const isLive = u.pathname.startsWith("/live/") && !!u.pathname.split("/")[2];
+    return isWatch || isShort || isLive;
   } catch {
     return false;
   }
@@ -1267,10 +1272,25 @@ function extractVideoId(url) {
       return parts[shortsIndex + 1];
     }
 
+    // /live/<videoId> - same video, same id, live now or streamed earlier.
+    const liveIndex = parts.indexOf("live");
+    if (liveIndex !== -1 && parts[liveIndex + 1]) {
+      return parts[liveIndex + 1];
+    }
+
     return null;
   } catch (err) {
     return null;
   }
+}
+
+// The canonical watch URL for any video we accept. A /live/<id> page is the same video
+// as /watch?v=<id>, and everything downstream (catalog record, comment sidecar,
+// transcript) is keyed to the watch URL - so normalise instead of storing two URLs for
+// one video depending on how the tab was opened.
+function canonicalWatchUrl(url) {
+  const id = extractVideoId(url);
+  return id ? `https://www.youtube.com/watch?v=${id}` : url;
 }
 
 // Safe filename from video title
@@ -2206,9 +2226,11 @@ function startupDetectActiveTab() {
   getCurrentTabUrl((url) => {
     // Video detection
     if (url && isYouTubeWatchUrl(url)) {
-      videoUrlInput.value = url;
+      // Store the canonical watch URL even when the tab is a /live page.
+      const canonical = canonicalWatchUrl(url);
+      videoUrlInput.value = canonical;
       setSingleVideoStatusWithLibrary("Detected current tab as a YouTube video.", "success", null);
-      scheduleSingleVideoLibraryCheck(url, "Detected current tab as a YouTube video.", "success");
+      scheduleSingleVideoLibraryCheck(canonical, "Detected current tab as a YouTube video.", "success");
     } else if (url) {
       singleVideoLibraryState = { url: "", videoId: "", match: null };
       updateSingleVideoDownloadButton(null);
