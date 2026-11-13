@@ -729,7 +729,7 @@ export const isAnimeContent = (item, details) => {
 // Default sources (upstream 2.7.0): hianime replaced allmanga as the anime source,
 // vidrift replaced the retired vidking.
 export const ANIME_DEFAULT_SOURCE = "hianime";
-export const NON_ANIME_DEFAULT_SOURCE = "vidrift";
+export const NON_ANIME_DEFAULT_SOURCE = "vidfast";
 
 // ── Episode Group fetch (localStorage + in-memory cache, 7-day TTL) ─────────
 // Episode groups almost never change -> cache aggressively across sessions.

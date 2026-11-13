@@ -481,6 +481,63 @@ function register(getMainWindow, { writeSecretMigration }) {
     }
   });
 
+  // ── Diagnostic: what does each frame actually see? ────────────────────────
+  // Used by the series downloader to explain a stall instead of guessing. Reports the
+  // video element state per frame (and the frame count), which distinguishes "the click
+  // never landed" from "the video is there but never leaves paused" from "the player is
+  // nested somewhere we cannot reach".
+  ipcMain.handle("debug-video-state", async (_, webContentsId) => {
+    try {
+      const { webContents } = require("electron");
+      const wc = webContents.fromId(webContentsId);
+      if (!wc || wc.isDestroyed()) return { summary: "webview gone" };
+      const frames = [];
+      const collect = (frame) => {
+        frames.push(frame);
+        for (const child of frame.frames || []) collect(child);
+      };
+      collect(wc.mainFrame);
+      const JS = `(() => {
+        const vs = document.querySelectorAll('video');
+        const v = vs[0];
+        return {
+          videos: vs.length,
+          iframes: document.querySelectorAll('iframe').length,
+          paused: v ? v.paused : null,
+          duration: v ? (isFinite(v.duration) ? Math.round(v.duration) : String(v.duration)) : null,
+          readyState: v ? v.readyState : null,
+          hasSrc: v ? !!(v.currentSrc || v.src) : null,
+        };
+      })()`;
+      const seen = [];
+      for (const frame of frames) {
+        try {
+          const r = await frame.executeJavaScript(JS);
+          seen.push({ url: (() => { try { return new URL(frame.url).host; } catch { return "?"; } })(), ...r });
+        } catch {
+          seen.push({ url: (() => { try { return new URL(frame.url).host; } catch { return "?"; } })(), error: "cross-origin" });
+        }
+      }
+      const withVideo = seen.filter((f) => f.videos > 0);
+      const target = withVideo[0] || seen[0];
+      // Some sources (vidfast) block an Electron UA and refuse to play at all, so the
+      // UA this webview is really running is part of the diagnosis.
+      let ua = "?";
+      try { ua = wc.getUserAgent() || "?"; } catch {}
+      const uaTag = /Electron/i.test(ua) ? "Electron UA (blocked by some sources)" : "clean UA";
+      const summary = target
+        ? `${frames.length} frame(s), ${withVideo.length} with <video>, ${target.url}: ` +
+          (target.error
+            ? target.error
+            : `paused=${target.paused} dur=${target.duration} ready=${target.readyState}` +
+              ` src=${target.hasSrc} ua=${uaTag}`)
+        : "no frames";
+      return { summary, frames: frames.length, seen };
+    } catch (e) {
+      return { summary: `debug failed: ${e.message}` };
+    }
+  });
+
   // ── Query video progress across all webview frames ────────────────────────
   // executeJavaScript on a webview only reaches the top frame.
   // VidSrc / 2embed nest the player inside cross-origin iframes, so we iterate

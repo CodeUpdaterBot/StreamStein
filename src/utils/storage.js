@@ -76,6 +76,8 @@ export const storage = {
 export const STORAGE_KEYS = {
   API_KEY: "apikey",
   PLAYER_SOURCE: "playerSource",
+  // Source marked with a star in the Source menu: what a newly opened title starts on.
+  DEFAULT_PLAYER_SOURCE: "defaultPlayerSource",
   ALLMANGA_DUB_MODE: "allmangaDubMode",
   WATCH_PROGRESS: "progress",
   WATCHED: "watched",

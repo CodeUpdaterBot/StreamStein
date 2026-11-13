@@ -93,8 +93,19 @@ export default function MoviePage({
   const [m3u8Url, setM3u8Url] = useState(null);
   const [streamHeaders, setStreamHeaders] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
+  // The source marked with a star in the Source menu decides what a freshly opened
+  // title uses; fall back to the code default when nothing is marked.
   const [playerSource, setPlayerSource] = useState(
-    () => storage.get("playerSource") || NON_ANIME_DEFAULT_SOURCE,
+    () =>
+      storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE) ||
+      NON_ANIME_DEFAULT_SOURCE,
+  );
+  // Kept separate from playerSource so switching provider for one title does not
+  // change the default.
+  const [defaultSource, setDefaultSource] = useState(
+    () =>
+      storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE) ||
+      NON_ANIME_DEFAULT_SOURCE,
   );
   const progressViaFrames = useMemo(
     () => sourceProgressViaFrames(playerSource),
@@ -380,17 +391,17 @@ export default function MoviePage({
       // Switch to anime source if current source is not an anime source
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (!currentSrc?.tag) {
-        const saved = storage.get("playerSource");
-        const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
-        setPlayerSource(savedSrc?.tag ? saved : ANIME_DEFAULT_SOURCE);
+        const def = storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE);
+        const defSrc = PLAYER_SOURCES.find((s) => s.id === def);
+        setPlayerSource(defSrc?.tag ? def : ANIME_DEFAULT_SOURCE);
       }
     } else {
       // Switch back to non-anime source if current source is anime-only
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (currentSrc?.tag) {
-        const saved = storage.get("playerSource");
-        const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
-        setPlayerSource(!savedSrc?.tag ? saved : NON_ANIME_DEFAULT_SOURCE);
+        const def = storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE);
+        const defSrc = PLAYER_SOURCES.find((s) => s.id === def);
+        setPlayerSource(!defSrc?.tag ? def : NON_ANIME_DEFAULT_SOURCE);
       }
     }
     return () => {
@@ -1306,7 +1317,8 @@ export default function MoviePage({
                 onClick={(e) => e.stopPropagation()}
               >
                 {PLAYER_SOURCES.map((src) => (
-                  <button
+                  <div className="source-dropdown__row" key={src.id}>
+                    <button
                     key={src.id}
                     className={
                       "source-dropdown__item" +
@@ -1334,6 +1346,29 @@ export default function MoviePage({
                       <span className="source-dropdown__note">{src.note}</span>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    className={
+                      "source-dropdown__default" +
+                      (defaultSource === src.id
+                        ? " source-dropdown__default--on"
+                        : "")
+                    }
+                    title={
+                      defaultSource === src.id
+                        ? "Default source for new titles"
+                        : "Use this as the default source"
+                    }
+                    aria-label="Set as default source"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDefaultSource(src.id);
+                      storage.set(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE, src.id);
+                    }}
+                    >
+                    {defaultSource === src.id ? "★" : "☆"}
+                  </button>
+                </div>
                 ))}
               </div>
             )}

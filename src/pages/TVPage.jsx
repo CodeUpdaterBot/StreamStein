@@ -394,6 +394,12 @@ export default function TVPage({
   const [trailerKey, setTrailerKey] = useState(null);
   const [showTrailer, setShowTrailer] = useState(false);
   const [m3u8Url, setM3u8Url] = useState(null);
+  // Mirrors m3u8Url for the batch wait: it polls this to notice a stream URL captured
+  // outside the batch window.
+  const m3u8UrlRef = useRef(null);
+  useEffect(() => {
+    m3u8UrlRef.current = m3u8Url;
+  }, [m3u8Url]);
   const [streamHeaders, setStreamHeaders] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const cast = useCast();
@@ -406,8 +412,19 @@ export default function TVPage({
     return () => window.electron?.setPlaybackKeepAwake?.(false);
   }, [playing, cast.currentDevice]);
 
+  // The source marked with a star in the Source menu decides what a freshly opened
+  // title uses; fall back to the code default when nothing is marked.
   const [playerSource, setPlayerSource] = useState(
-    () => storage.get("playerSource") || NON_ANIME_DEFAULT_SOURCE,
+    () =>
+      storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE) ||
+      NON_ANIME_DEFAULT_SOURCE,
+  );
+  // Kept separate from playerSource so switching provider for one title does not
+  // change the default.
+  const [defaultSource, setDefaultSource] = useState(
+    () =>
+      storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE) ||
+      NON_ANIME_DEFAULT_SOURCE,
   );
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   // Derived from playerSource, computed once per render instead of 5-6× inline
@@ -667,18 +684,18 @@ export default function TVPage({
       // Switch to anime source if current source is not an anime source
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (!currentSrc?.tag) {
-        const saved = storage.get("playerSource");
-        const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
-        setPlayerSource(savedSrc?.tag ? saved : ANIME_DEFAULT_SOURCE);
+        const def = storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE);
+        const defSrc = PLAYER_SOURCES.find((s) => s.id === def);
+        setPlayerSource(defSrc?.tag ? def : ANIME_DEFAULT_SOURCE);
       }
     } else {
       setAnilistLoading(false);
       // Switch back to non-anime source if current source is anime-only
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (currentSrc?.tag) {
-        const saved = storage.get("playerSource");
-        const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
-        setPlayerSource(!savedSrc?.tag ? saved : NON_ANIME_DEFAULT_SOURCE);
+        const def = storage.get(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE);
+        const defSrc = PLAYER_SOURCES.find((s) => s.id === def);
+        setPlayerSource(!defSrc?.tag ? def : NON_ANIME_DEFAULT_SOURCE);
       }
     }
     return () => {
@@ -750,14 +767,20 @@ export default function TVPage({
       const requestHeaders =
         typeof payload === "object" ? payload?.requestHeaders : undefined;
       const batch = seriesBatchRef.current;
-      if (
-        batch &&
-        url &&
-        webContentsId != null &&
-        batch.wcId === webContentsId
-      ) {
+      if (batch && url) {
+        // Deliberately NOT requiring batch.wcId === webContentsId: a player that fetches
+        // its media from a popout or fullscreen webContents reports a different id, and
+        // rejecting those left the batch empty so the episode stalled on "waiting for the
+        // stream URL" while the video was demonstrably playing. A batch covers one
+        // episode and its captured URL is reset when it starts, so anything arriving in
+        // that window belongs to this episode.
+        if (webContentsId == null || batch.wcId !== webContentsId) {
+          batch.foreignWc = (batch.foreignWc || 0) + 1;
+        }
         batch.urls.push(url);
+        batch.seen = batch.urls.length;
         if (requestHeaders) batch.streamHeaders = requestHeaders;
+        m3u8UrlRef.current = url;
         setM3u8Url(url);
         if (requestHeaders && Object.keys(requestHeaders).length) {
           setStreamHeaders(requestHeaders);
@@ -1707,9 +1730,20 @@ export default function TVPage({
     const batch = seriesBatchRef.current;
     if (batch) {
       clearTimeout(batch.settleTimer);
+      clearInterval(batch.poll);
       batch.resolve(null);
       seriesBatchRef.current = null;
     }
+  }, []);
+
+  const batchStatus = useCallback(() => {
+    const batch = seriesBatchRef.current;
+    if (!batch) return { urls: 0, foreignWc: 0, ageMs: null };
+    return {
+      urls: batch.urls.length,
+      foreignWc: batch.foreignWc || 0,
+      ageMs: Date.now() - (batch.startedAt || Date.now()),
+    };
   }, []);
 
   const peekBatchM3u8 = useCallback(() => {
@@ -1720,8 +1754,16 @@ export default function TVPage({
 
   const waitForBatchM3u8 = useCallback((wcId, signal) => {
     return new Promise((resolve) => {
+      // One episode per batch: clear the previously captured URL so a stream captured
+      // for the PREVIOUS episode can never be downloaded as this one's.
+      m3u8UrlRef.current = null;
+      setM3u8Url(null);
+      let maxTimer = null;
       const finish = (url) => {
-        clearTimeout(seriesBatchRef.current?.settleTimer);
+        const cur = seriesBatchRef.current;
+        clearTimeout(cur?.settleTimer);
+        clearInterval(cur?.poll);
+        if (maxTimer) clearTimeout(maxTimer);
         seriesBatchRef.current = null;
         resolve(url || null);
       };
@@ -1729,13 +1771,26 @@ export default function TVPage({
         wcId,
         urls: [],
         settleTimer: null,
+        poll: null,
+        foreignWc: 0,
+        startedAt: Date.now(),
         resolve: finish,
       };
       seriesBatchRef.current = batch;
-      const maxTimer = setTimeout(() => finish(pickBestMediaUrl(batch.urls)), 90000);
+      // Some players start before the batch exists and fire no further request, so also
+      // watch the URL the page itself captured and finish as soon as one appears.
+      batch.poll = setInterval(() => {
+        if (m3u8UrlRef.current) {
+          batch.resolve(pickBestMediaUrl([...batch.urls, m3u8UrlRef.current]));
+        }
+      }, 1000);
+      maxTimer = setTimeout(
+        () => finish(pickBestMediaUrl(batch.urls) || m3u8UrlRef.current),
+        90000,
+      );
       const onAbort = () => {
         clearTimeout(maxTimer);
-        finish(pickBestMediaUrl(batch.urls));
+        finish(pickBestMediaUrl(batch.urls) || m3u8UrlRef.current);
       };
       signal?.addEventListener("abort", onAbort, { once: true });
       const origResolve = finish;
@@ -1842,6 +1897,7 @@ export default function TVPage({
           endBatchCapture,
           cancelBatchM3u8,
           peekBatchM3u8,
+          batchStatus,
           waitForBatchM3u8,
           loadEpisodeInPlayer,
           stopPlayer,
@@ -1862,6 +1918,7 @@ export default function TVPage({
       endBatchCapture,
       cancelBatchM3u8,
       peekBatchM3u8,
+      batchStatus,
       waitForBatchM3u8,
       loadEpisodeInPlayer,
       stopPlayer,
@@ -2424,7 +2481,8 @@ export default function TVPage({
                     onClick={(e) => e.stopPropagation()}
                   >
                     {PLAYER_SOURCES.map((src) => (
-                      <button
+                      <div className="source-dropdown__row" key={src.id}>
+                        <button
                         key={src.id}
                         className={
                           "source-dropdown__item" +
@@ -2456,6 +2514,29 @@ export default function TVPage({
                           </span>
                         )}
                       </button>
+                      <button
+                        type="button"
+                        className={
+                          "source-dropdown__default" +
+                          (defaultSource === src.id
+                            ? " source-dropdown__default--on"
+                            : "")
+                        }
+                        title={
+                          defaultSource === src.id
+                            ? "Default source for new titles"
+                            : "Use this as the default source"
+                        }
+                        aria-label="Set as default source"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDefaultSource(src.id);
+                          storage.set(STORAGE_KEYS.DEFAULT_PLAYER_SOURCE, src.id);
+                        }}
+                        >
+                        {defaultSource === src.id ? "★" : "☆"}
+                      </button>
+                    </div>
                     ))}
                   </div>
                 )}

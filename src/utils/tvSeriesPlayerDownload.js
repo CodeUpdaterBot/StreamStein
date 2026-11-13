@@ -44,20 +44,26 @@ function getWebviewId(wv) {
   }
 }
 
+/** @returns {Promise<number>} how many play clicks actually landed */
 async function automatePlay(wv, wcId) {
+  let clicks = 0;
   try {
     wv?.focus?.();
   } catch {}
   try {
     if (wcId && window.electron?.clickEmbedPlayCenter) {
-      await window.electron.clickEmbedPlayCenter(wcId);
+      const r = await window.electron.clickEmbedPlayCenter(wcId);
+      clicks += Number(r?.clicks) || 0;
     } else if (wcId && window.electron?.automateEmbedPlayer) {
-      await window.electron.automateEmbedPlayer(wcId);
+      const r = await window.electron.automateEmbedPlayer(wcId);
+      clicks += Number(r?.clicks) || 0;
     }
   } catch {}
   try {
-    await wv?.executeJavaScript?.(TRIGGER_PLAY_JS);
+    const n = await wv?.executeJavaScript?.(TRIGGER_PLAY_JS);
+    clicks += Number(n) || 0;
   } catch {}
+  return clicks;
 }
 
 /** @returns {Promise<string|null>} */
@@ -153,7 +159,7 @@ export async function runTvSeriesPlayerDownload(tv, job, deps) {
       : sortSources(
           job.sources?.length > 0
             ? job.sources
-            : [tv.playerSource || "videasy"],
+            : [tv.playerSource || "vidfast"],
         );
 
     for (let i = 0; i < job.episodes.length; i++) {
@@ -190,9 +196,9 @@ export async function runTvSeriesPlayerDownload(tv, job, deps) {
           phase: "resolving",
           current: label,
           index: i + 1,
-          message: `Resolving ${label} on AllManga…`,
+          message: `Resolving ${label} on HiAnime…`,
         });
-        const r = await window.electron.resolveAllManga({
+        const r = await window.electron.resolveHiAnime({
           title: job.animeTitle || job.showTitle,
           seasonNumber: ep.uiSeason ?? ep.season,
           episodeNumber: ep.uiEpisode ?? ep.episode,
@@ -200,11 +206,11 @@ export async function runTvSeriesPlayerDownload(tv, job, deps) {
         });
         if (r?.ok && r.url) {
           capturedUrl = r.url;
-          usedSource = "allmanga";
+          usedSource = "hianime";
         } else {
           errors.push({
             label,
-            error: r?.error || "AllManga resolve failed",
+            error: r?.error || "HiAnime resolve failed",
           });
           report({ phase: "error_episode", current: label, index: i + 1 });
           continue;
@@ -244,14 +250,44 @@ export async function runTvSeriesPlayerDownload(tv, job, deps) {
 
           const playStart = Date.now();
           let videoReady = false;
+          let totalClicks = 0;
+          let attempts = 0;
+          let lastDiag = null;
           while (Date.now() - playStart < PLAY_TIMEOUT_MS) {
             if (signal?.aborted) break;
-            await automatePlay(wv, wcId);
+            attempts += 1;
+            totalClicks += await automatePlay(wv, wcId);
             const progress = await waitForVideoPlaying(wcId, signal, 5000);
             if (progress) {
               videoReady = true;
+              report({
+                phase: "playing",
+                current: label,
+                index: i + 1,
+                message:
+                `Playing ${label} on ${sourceId} (${Math.round(progress.duration)}s, ` +
+                `${totalClicks} click(s)) — waiting for the stream URL` +
+                (() => {
+                  const b = tv.batchStatus?.();
+                  return b
+                    ? ` (${b.urls} url(s), ${b.foreignWc} from another webContents)…`
+                    : "…";
+                })(),
+              });
               break;
             }
+            // Not detected yet: show WHY, so a stuck episode is diagnosable from the UI
+            try {
+              lastDiag = await window.electron?.debugVideoState?.(wcId);
+            } catch {}
+            report({
+              phase: "playing",
+              current: label,
+              index: i + 1,
+              message:
+                `Starting playback for ${label} (${sourceId}: ${totalClicks} click(s), ` +
+                `${lastDiag?.summary || "no video state yet"})… try ${attempts}`,
+            });
             await delay(1800);
           }
 

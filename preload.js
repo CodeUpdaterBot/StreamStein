@@ -188,6 +188,8 @@ contextBridge.exposeInMainWorld("electron", {
   clearAppCache: () => ipcRenderer.invoke("clear-app-cache"),
   queryVideoProgress: (webContentsId) =>
     ipcRenderer.invoke("query-video-progress", webContentsId),
+  debugVideoState: (webContentsId) =>
+    ipcRenderer.invoke("debug-video-state", webContentsId),
   automateEmbedPlayer: (webContentsId) =>
     ipcRenderer.invoke("automate-embed-player", webContentsId),
   clickEmbedPlayCenter: (webContentsId) =>

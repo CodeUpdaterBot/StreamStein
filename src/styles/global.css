@@ -5563,6 +5563,47 @@ body.compact-mode .yt-grid {
     backdrop-filter: none;
 }
 
+/* Wrapper so the star sits beside the row rather than inside its <button>. */
+.source-dropdown__row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.source-dropdown__row .source-dropdown__item {
+    flex: 1;
+    min-width: 0;
+}
+
+/* "Use as default" control: sets which source new titles open with. */
+.source-dropdown__default {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text3);
+    font-size: 13px;
+    line-height: 1;
+    padding: 6px 7px;
+    cursor: pointer;
+    transition:
+        color 0.12s,
+        border-color 0.12s,
+        background 0.12s;
+}
+
+.source-dropdown__default:hover {
+    color: var(--text);
+    border-color: var(--border);
+    background: var(--hover);
+}
+
+.source-dropdown__default--on {
+    color: var(--red);
+    border-color: var(--red-dim);
+    background: var(--red-dim);
+}
+
 .source-dropdown--fixed {
     position: fixed;
     top: 0; /* overridden by inline style */
