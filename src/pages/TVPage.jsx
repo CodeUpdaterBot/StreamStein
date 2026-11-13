@@ -399,14 +399,6 @@ export default function TVPage({
   const cast = useCast();
   const [showCastPicker, setShowCastPicker] = useState(false);
   const [asyncIsDirectMp4, setAsyncIsDirectMp4] = useState(null);
-  // The id the selected source expects: the TMDB id for most sources, or a converted
-  // IMDb / Kinopoisk id for the ones that need it (devideosrc / kinohub).
-  const srcId = useSourceId(playerSource, "tv", item.id, apiKey);
-  // Re-blank the player once a late-resolved id swaps in the real URL.
-  useEffect(() => {
-    if (srcId.id && playing) setWebviewLoading(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [srcId.id]);
 
   useEffect(() => {
     const active = playing && !cast.currentDevice;
@@ -428,6 +420,14 @@ export default function TVPage({
     () => sourceProgressViaFrames(playerSource),
     [playerSource],
   );
+  // The id the selected source expects: the TMDB id for most sources, or a converted
+  // IMDb / Kinopoisk id for the ones that need it (devideosrc / kinohub).
+  const srcId = useSourceId(playerSource, "tv", item.id, apiKey);
+  // Re-blank the player once a late-resolved id swaps in the real URL.
+  useEffect(() => {
+    if (srcId.id && playing) setWebviewLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcId.id]);
   const [dubMode, setDubMode] = useState(
     // key kept from the AllManga era so the saved sub/dub choice survives
     () => storage.get("allmangaDubMode") || "sub",
