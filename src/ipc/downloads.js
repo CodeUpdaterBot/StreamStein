@@ -1423,6 +1423,22 @@ async function spawnDownloadProcess(
     } catch {}
   }
 
+  // A CDN that streams fine can still 429/403 a bulk download - exactly what the user's
+  // logs show (429 on fragment 3 in one, 403 on the playlist in the other). Ask yt-dlp to
+  // pace itself rather than letting it hammer the CDN and die.
+  const YTDLP_THROTTLE_ARGS =
+    "--sleep-requests 1 --concurrent-fragments 1 --retry-sleep 5 --socket-timeout 30";
+  headerArgString = [headerArgString, YTDLP_THROTTLE_ARGS]
+    .filter(Boolean)
+    .join(" ");
+  try {
+    fs.appendFileSync(
+      logPath,
+      `Throttle: ${YTDLP_THROTTLE_ARGS}\n${"─".repeat(60)}\n`,
+      "utf8",
+    );
+  } catch {}
+
   const args = [
     "--cli",
     m3u8Url,
@@ -1455,11 +1471,18 @@ async function spawnDownloadProcess(
 
     const update = {};
 
-    if (
-      /unable to download fragment|fragment not found|got error:.*fragment/i.test(
-        trimmed,
-      )
-    ) {
+    // A retry notice is NOT a failure. yt-dlp prints
+    //   "[download] Got error: HTTP Error 429: Too Many Requests. Retrying fragment 3 (1/100)..."
+    // and heals itself; treating that as fatal SIGKILLed the download at fragment 3, which is
+    // exactly the error the user saw on the card. Only kill on genuinely terminal output.
+    const isRetryNotice = /retrying|sleeping .* seconds|will retry/i.test(trimmed);
+    const isFatalFragmentError =
+      !isRetryNotice &&
+      (/ERROR:/i.test(trimmed) ||
+        /giving up after|fragment .*not found|unable to download fragment|unable to continue/i.test(
+          trimmed,
+        ));
+    if (isFatalFragmentError) {
       update.lastMessage = trimmed.slice(0, 200);
       downloads[idx] = { ...downloads[idx], ...update, status: "error" };
       sendProgress({ id, status: "error", lastMessage: update.lastMessage });

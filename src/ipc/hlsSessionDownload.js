@@ -46,6 +46,77 @@ function buildFetchHeaders(streamHeaders = {}, playerHeaders = {}) {
   return out;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A CDN that answers 429/503 is asking us to slow down. These are worth retrying; an
+// explicit cancel is not.
+function isRetryableFetchError(err) {
+  const msg = String(err?.message || err || "");
+  if (/abort|cancel/i.test(msg)) return false;
+  if (/HTTP (408|425|429|500|502|503|504)\b/.test(msg)) return true;
+  if (/net::ERR_(FAILED|CONNECTION_|TIMED_OUT|EMPTY_RESPONSE|SOCKET|NETWORK_|HTTP2_|SSL)/i.test(msg))
+    return true;
+  if (/ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(msg)) return true;
+  return false;
+}
+
+const RETRY_DELAYS_MS = [400, 1200, 3000, 7000, 15000];
+
+// Shared back-pressure. A per-segment sleep would leave the other five workers hammering
+// the CDN, which is how the block gets sustained, so every worker waits on this gate.
+const throttleGate = {
+  nextAllowedAt: 0,
+  cooldownMs: 0,
+  throttled: 0,
+  retries: 0,
+};
+
+function noteThrottle() {
+  throttleGate.throttled += 1;
+  throttleGate.cooldownMs = throttleGate.cooldownMs
+    ? Math.min(throttleGate.cooldownMs * 2, 20000)
+    : 1500;
+  throttleGate.nextAllowedAt = Date.now() + throttleGate.cooldownMs;
+  return throttleGate.cooldownMs;
+}
+
+async function awaitThrottleGate(signal) {
+  for (;;) {
+    const wait = throttleGate.nextAllowedAt - Date.now();
+    if (wait <= 0) return;
+    if (signal?.aborted) throw new Error("Cancelled");
+    await sleep(Math.min(wait, 500));
+  }
+}
+
+async function withRetry(attempt, signal, onLog) {
+  let lastErr;
+  for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
+    if (signal?.aborted) throw new Error("Cancelled");
+    try {
+      await awaitThrottleGate(signal);
+      return await attempt();
+    } catch (e) {
+      lastErr = e;
+      if (!isRetryableFetchError(e)) throw e;
+      if (i === RETRY_DELAYS_MS.length - 1) break;
+      throttleGate.retries += 1;
+      const isThrottle = /HTTP (429|503)\b|net::ERR_/i.test(String(e?.message || e));
+      const cooldown = isThrottle ? noteThrottle() : 0;
+      const jitter = Math.random() * 0.35;
+      const wait = Math.max(RETRY_DELAYS_MS[i], cooldown);
+      const waitJittered = Math.round(wait * (1 + jitter));
+      onLog?.(
+        `[session-hls] retry ${i + 1}/${RETRY_DELAYS_MS.length - 1} in ${waitJittered}ms after ${String(
+          e?.message || e,
+        ).slice(0, 120)}`,
+      );
+      await sleep(waitJittered);
+    }
+  }
+  throw lastErr;
+}
+
 async function sessionFetch(url, headers, signal) {
   const ses = session.fromPartition("persist:player");
   if (typeof ses.fetch !== "function") {
@@ -62,15 +133,19 @@ async function sessionFetch(url, headers, signal) {
   return res;
 }
 
-async function fetchText(url, headers, signal) {
-  const res = await sessionFetch(url, headers, signal);
-  return await res.text();
+async function fetchText(url, headers, signal, onLog) {
+  return await withRetry(async () => {
+    const res = await sessionFetch(url, headers, signal);
+    return await res.text();
+  }, signal, onLog);
 }
 
-async function fetchBuffer(url, headers, signal) {
-  const res = await sessionFetch(url, headers, signal);
-  const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+async function fetchBuffer(url, headers, signal, onLog) {
+  return await withRetry(async () => {
+    const res = await sessionFetch(url, headers, signal);
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  }, signal, onLog);
 }
 
 function absUrl(maybeRelative, baseUrl) {
@@ -395,10 +470,26 @@ async function downloadHlsViaPlayerSession({
       lastMessage: `HLS: ${parsed.segmentCount} fragments (browser session)`,
     });
 
+    throttleGate.cooldownMs = 0;
+    throttleGate.nextAllowedAt = 0;
+    throttleGate.throttled = 0;
+    throttleGate.retries = 0;
     let completedSegs = 0;
-    await mapPool(parsed.assets, 6, async (asset) => {
+    const segmentErrors = [];
+    // 3, not 6: the CDN refused a 6-wide burst (429 in one log, 503 in the other) while
+    // the same stream plays fine at streaming pace. Retries make the slower rate safe.
+    try {
+    await mapPool(parsed.assets, 3, async (asset) => {
       if (signal?.aborted) throw new Error("Cancelled");
-      const buf = await fetchBuffer(asset.url, headers, signal);
+      let buf;
+      try {
+        buf = await fetchBuffer(asset.url, headers, signal, log);
+      } catch (e) {
+        if (segmentErrors.length < 5) {
+          segmentErrors.push(`${String(e?.message || e).slice(0, 160)} <${asset.url.slice(0, 120)}>`);
+        }
+        throw e;
+      }
       fs.writeFileSync(path.join(workDir, asset.localName), buf);
       if (asset.kind === "seg") {
         completedSegs += 1;
@@ -414,6 +505,19 @@ async function downloadHlsViaPlayerSession({
         });
       }
     });
+    } catch (e) {
+      const why = segmentErrors.length
+        ? ` | first errors: ${segmentErrors.join(" ;; ")}`
+        : "";
+      throw new Error(`${String(e?.message || e)} (after ${throttleGate.retries} retries, ${throttleGate.throttled} throttle response(s))${why}`);
+    }
+
+    if (throttleGate.retries || throttleGate.throttled) {
+      log(
+        `[session-hls] ${throttleGate.retries} retr${throttleGate.retries === 1 ? "y" : "ies"}, ` +
+          `${throttleGate.throttled} throttle response(s) — CDN pushed back, download continued`,
+      );
+    }
 
     const localPlaylist = path.join(workDir, "index.m3u8");
     fs.writeFileSync(localPlaylist, parsed.playlistText, "utf8");
