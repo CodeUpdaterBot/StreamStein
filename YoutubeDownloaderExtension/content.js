@@ -38,31 +38,22 @@ window.addEventListener("message", (event) => {
   );
 });
 
-function injectProxyScript() {
-  const inject = () => {
-    const existing = document.querySelector(
-      `script[data-source="${BRIDGE_SOURCE}"]`
-    );
-    if (existing) {
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("injected.js");
-    script.dataset.source = BRIDGE_SOURCE;
-    script.type = "module";
-    script.onload = () => {
-      script.remove();
-    };
-    document.documentElement.appendChild(script);
-  };
-
-  if (document.documentElement) {
-    inject();
-  } else {
-    window.addEventListener("DOMContentLoaded", inject, { once: true });
-  }
-}
+/**
+ * No-op on purpose.
+ *
+ * injected.js is registered in manifest.json as a content script with `"world": "MAIN"` at
+ * document_start, so Chrome injects it straight into the page's main world.
+ *
+ * This used to append a <script src="chrome-extension://.../injected.js"> tag with
+ * type="module". Chrome now refuses that: a MODULE script fetched from an extension URL is
+ * subject to CORS rules a page origin can never satisfy, so the load fails with
+ *   "Unsafe attempt to load URL chrome-extension://<id>/injected.js from frame with URL
+ *    https://www.youtube.com/watch?v=... Domains, protocols and ports must match."
+ * and window.proxyFetch never appears, so every download fails.
+ *
+ * Kept as a no-op so any older call site remains harmless.
+ */
+function injectProxyScript() {}
 
 // =====================
 // Channel collector (scroll + scrape)
